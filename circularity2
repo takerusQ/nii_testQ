@@ -1,87 +1,10 @@
-import os
-import pydicom
-import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
-from scipy.ndimage import median_filter
+import cv2
 from ipywidgets import interact, IntSlider
 
-def process_dicom_directory(dicom_dir_path):
-    dicom_files = sorted([f for f in os.listdir(dicom_dir_path) if f.endswith('.dcm')])
-    d = pydicom.dcmread(os.path.join(dicom_dir_path, dicom_files[0]))
-
-    slices = [cv2.resize(
-        pydicom.dcmread(os.path.join(dicom_dir_path, f)).pixel_array,
-        dsize=None,
-        fx=(512 / 512),
-        fy=(512 / 512),
-        interpolation=cv2.INTER_CUBIC)
-        for f in dicom_files]
-
-    return slices[:23]  # スライスを23枚に制限
-
-def extract_bones(input_image):
-    input_image[:, 0:5] = 0
-    input_image[:, -5:] = 0
-    input_image[0:5, :] = 0
-    input_image[-5:, :] = 0
-
-    bone_threshold = 200
-    new_image = input_image * (input_image >= bone_threshold)
-
-    return new_image
-
-def extract_specific_y(input_image, y_min=0, y_max=350):
-    new_image = input_image.copy()
-    new_image[:, :y_min] = 0
-    new_image[:, y_max:] = 0
-    return new_image
-
-def extract_specific_x(input_image, x_min=0, x_max=350):
-    new_image = input_image.copy()
-    new_image[:x_min, :] = 0
-    new_image[x_max:, :] = 0
-    return new_image
-
-def create_sternum_mask(slice):
-    bones = extract_bones(slice)
-    bones_specific_y = extract_specific_y(bones, y_min=256-40, y_max=256+40)
-    bones_specific_xy = extract_specific_x(bones_specific_y, x_min=256-40, x_max=256+40)
-    mask = median_filter(bones_specific_xy, size=3) > 0
-    return mask
-
-def find_and_interpolate_edges(mask):
-    height, width = mask.shape
-    upper_edge = np.full(width, -1)
-    lower_edge = np.full(width, height)
-
-    for x in range(width):
-        column = mask[:, x]
-        if np.any(column):
-            upper_edge[x] = np.max(np.where(column)[0])
-            lower_edge[x] = np.min(np.where(column)[0])
-
-    x_range = np.arange(width)
-    valid_upper = upper_edge != -1
-    valid_lower = lower_edge != height
-
-    if np.any(valid_upper):
-        f_upper = interp1d(x_range[valid_upper], upper_edge[valid_upper], kind='linear', fill_value='extrapolate')
-        upper_edge = f_upper(x_range)
-
-    if np.any(valid_lower):
-        f_lower = interp1d(x_range[valid_lower], lower_edge[valid_lower], kind='linear', fill_value='extrapolate')
-        lower_edge = f_lower(x_range)
-
-    return upper_edge, lower_edge
-
-def find_max_inscribed_circle(mask):
-    dist_map = cv2.distanceTransform(mask.astype(np.uint8), cv2.DIST_L2, 5)
-    
-    _, max_val, _, max_loc = cv2.minMaxLoc(dist_map)
-
-    return max_loc, max_val
+# 既存の関数（find_and_interpolate_edges, find_max_inscribed_circle）はそのまま使用
 
 def analyze_sternum(mask):
     sternum_area = np.sum(mask)
@@ -90,7 +13,7 @@ def analyze_sternum(mask):
     # 新しいcircularity定義：内接円面積 / 胸骨領域面積 * 100
     circularity = (np.pi * radius ** 2) / sternum_area * 100
     
-    # Area Proportion
+    # Area Proportion（既存の定義を使用）
     total_area = mask.size
     area_proportion = sternum_area / total_area * 100
     
@@ -156,13 +79,23 @@ def visualize_results(slices, masks):
 
     interact(plot_slice, slice_index=IntSlider(min=0, max=len(slices)-1, step=1, value=0))
 
+# メイン処理
 def main(dicom_dir_path):
     slices = process_dicom_directory(dicom_dir_path)
     masks = [create_sternum_mask(slice) for slice in slices]
     visualize_results(slices, masks)
 
+# DICOM処理とマスク作成の関数（これらは既存のコードを使用すると仮定）
+def process_dicom_directory(dicom_dir_path):
+    # DICOMファイルを読み込み、スライスのリストを返す
+    pass
+
+def create_sternum_mask(slice):
+    # スライスから胸骨領域のマスクを作成
+    pass
+
 # 使用例
-example_person_dicom_dir_path = "/content/drive/Shareddrives/複数手法を用いた256画素CT画像の主観評価/本番環境/data/2_1_島村先生にアップロード頂いたファイルの整理dataのうち必要な患者のseries2のdata/0030_20200805_2"
+example_person_dicom_dir_path = "/path/to/dicom/directory"
 main(example_person_dicom_dir_path)
 
 ###############################
