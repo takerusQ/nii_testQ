@@ -2,53 +2,51 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 from scipy.spatial import distance
+from ipywidgets import interact, IntSlider
 
 def find_and_interpolate_edges(mask):
     height, width = mask.shape
-    y_min, y_max = 256 - 40, 256 + 40
-    upper_edge = np.full(width, y_min - 1)
-    lower_edge = np.full(width, y_max + 1)
+    upper_edge = np.full(width, -1)
+    lower_edge = np.full(width, height)
 
     for x in range(width):
-        column = mask[y_min:y_max+1, x]
+        column = mask[:, x]
         if np.any(column):
-            upper_edge[x] = y_min + np.max(np.where(column)[0])
-            lower_edge[x] = y_min + np.min(np.where(column)[0])
+            upper_edge[x] = np.max(np.where(column)[0])
+            lower_edge[x] = np.min(np.where(column)[0])
 
     # Interpolate missing points
     x_range = np.arange(width)
-    valid_upper = upper_edge != (y_min - 1)
-    valid_lower = lower_edge != (y_max + 1)
+    valid_upper = upper_edge != -1
+    valid_lower = lower_edge != height
 
     if np.any(valid_upper):
         f_upper = interp1d(x_range[valid_upper], upper_edge[valid_upper], kind='linear', fill_value='extrapolate')
-        upper_edge = np.clip(f_upper(x_range), y_min, y_max)
+        upper_edge = np.clip(f_upper(x_range), 0, height - 1)
 
     if np.any(valid_lower):
         f_lower = interp1d(x_range[valid_lower], lower_edge[valid_lower], kind='linear', fill_value='extrapolate')
-        lower_edge = np.clip(f_lower(x_range), y_min, y_max)
+        lower_edge = np.clip(f_lower(x_range), 0, height - 1)
 
     return upper_edge, lower_edge
 
-def find_max_inscribed_circle(mask, upper_edge, lower_edge):
-    y_min, y_max = 256 - 40, 256 + 40
+def find_max_inscribed_circle(mask):
     height, width = mask.shape
     max_radius = 0
     center = None
 
-    for x in range(width):
-        for y in range(int(lower_edge[x]), int(upper_edge[x]) + 1):
-            if y_min <= y <= y_max and mask[y, x]:
-                distances = distance.cdist(np.array([[x, y]]), np.argwhere(mask == 0)).min()
-                if distances > max_radius:
-                    max_radius = distances
-                    center = (x, y)
+    # Create distance transform of the inverted mask
+    dist_transform = distance.distance_transform_edt(~mask)
 
-    return center, max_radius
+    # Find the maximum distance and its location
+    max_dist = np.max(dist_transform * mask)
+    center = np.unravel_index(np.argmax(dist_transform * mask), mask.shape)
+
+    return center[::-1], max_dist  # Reverse center coordinates to (x, y)
 
 def visualize_sternum_with_edges_and_circle(slice_image, mask):
     upper_edge, lower_edge = find_and_interpolate_edges(mask)
-    center, radius = find_max_inscribed_circle(mask, upper_edge, lower_edge)
+    center, radius = find_max_inscribed_circle(mask)
 
     plt.figure(figsize=(10, 10))
     plt.imshow(slice_image, cmap='gray')
@@ -65,7 +63,7 @@ def visualize_sternum_with_edges_and_circle(slice_image, mask):
         plt.gca().add_artist(circle)
 
     plt.title('Sternum with Edges and Max Inscribed Circle')
-    plt.ylim(256 + 40, 256 - 40)  # Reverse y-axis to match image coordinates
+    plt.axis('off')
     plt.tight_layout()
 
 def visualize_results(slices, area_proportion_list, circularity_list, region_list):
@@ -81,8 +79,7 @@ def visualize_results(slices, area_proportion_list, circularity_list, region_lis
         plt.subplot(232)
         mask = np.zeros_like(slices[slice_index], dtype=bool)
         for x, y in region_list[slice_index]:
-            if 256 - 40 <= y <= 256 + 40:
-                mask[y, x] = True
+            mask[y, x] = True
         plt.imshow(slices[slice_index], cmap='gray')
         plt.imshow(mask, cmap='Reds', alpha=0.3)
         plt.title(f'Sternum Region (Slice {slice_index})')
