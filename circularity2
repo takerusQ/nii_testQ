@@ -1,3 +1,15 @@
+        # Metrics
+        plt.subplot(133)
+        plt.text(0.1, 0.6, f'Area Proportion: {area_proportion_list[slice_index]:.2f}%', fontsize=12)
+        plt.text(0.1, 0.4, f'Circularity: {circularity_list[slice_index]:.4f}', fontsize=12)
+        plt.axis('off')
+        plt.title('Metrics')
+
+
+
+###############################
+
+
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
