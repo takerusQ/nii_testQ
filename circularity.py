@@ -1,183 +1,165 @@
-これが一番うまくいっていた。黄色い内接円が赤のregionの上縁と下縁をはみ出ないようにして。
-内部に少しくらいノイズ由来の非regionを含むのは許容します。
-
-import numpy as np
 import matplotlib.pyplot as plt
-from scipy.interpolate import interp1d
-from scipy.spatial import ConvexHull
+from ipywidgets import interact, IntSlider
+import matplotlib.patches as patches
 
-def find_and_interpolate_edges(mask):
-    height, width = mask.shape
-    upper_edge = np.full(width, -1)
-    lower_edge = np.full(width, height)
+def analyze_slices(slices):
+    area_proportion_list = []
+    circularity_list = []
+    inside_circle_proportion_list = []
+    region_list = []
 
-    for x in range(width):
-        column = mask[:, x]
-        if np.any(column):
-            upper_edge[x] = np.max(np.where(column)[0])
-            lower_edge[x] = np.min(np.where(column)[0])
+    for slice in slices:
+        mask = create_sternum_mask(slice)  # この関数は別途定義が必要です
+        center, radius = find_max_inscribed_circle(mask)
+        
+        # 胸骨領域の面積
+        sternum_area = np.sum(mask)
+        
+        # 画像全体の面積
+        total_area = mask.size
+        
+        # Area Proportion（既存の定義）
+        area_proportion = sternum_area / total_area * 100
+        
+        if center is not None and radius > 0:
+            # 内接円の面積
+            circle_area = np.pi * radius ** 2
+            
+            # 新しいCircularity定義
+            circularity = circle_area / sternum_area * 100 if sternum_area > 0 else 0
+            
+            # Inside Circle Proportion
+            y, x = np.ogrid[:mask.shape[0], :mask.shape[1]]
+            circle_mask = ((x - center[0])**2 + (y - center[1])**2 <= radius**2)
+            inside_circle_area = np.sum(mask & circle_mask)
+            inside_circle_proportion = inside_circle_area / circle_area * 100 if circle_area > 0 else 0
+        else:
+            circularity = 0
+            inside_circle_proportion = 0
 
-    # Interpolate missing points
-    x_range = np.arange(width)
-    valid_upper = upper_edge != -1
-    valid_lower = lower_edge != height
+        area_proportion_list.append(area_proportion)
+        circularity_list.append(circularity)
+        inside_circle_proportion_list.append(inside_circle_proportion)
+        region_list.append(np.argwhere(mask))
 
-    if np.any(valid_upper):
-        f_upper = interp1d(x_range[valid_upper], upper_edge[valid_upper], kind='linear', fill_value='extrapolate')
-        upper_edge = f_upper(x_range)
+    return area_proportion_list, circularity_list, inside_circle_proportion_list, region_list
 
-    if np.any(valid_lower):
-        f_lower = interp1d(x_range[valid_lower], lower_edge[valid_lower], kind='linear', fill_value='extrapolate')
-        lower_edge = f_lower(x_range)
 
-    return upper_edge, lower_edge
-
-def find_max_inscribed_circle(upper_edge, lower_edge):
-    points = np.column_stack((np.arange(len(upper_edge)), upper_edge))
-    points = np.vstack((points, np.column_stack((np.arange(len(lower_edge)), lower_edge))))
-    
-    hull = ConvexHull(points)
-    hull_points = points[hull.vertices]
-
-    max_radius = 0
-    center = None
-
-    for x in range(len(upper_edge)):
-        y_range = np.arange(lower_edge[x], upper_edge[x] + 1)
-        for y in y_range:
-            point = np.array([x, y])
-            distances = np.min(np.abs(np.cross(hull_points[1:] - hull_points[:-1], point - hull_points[:-1])) / 
-                               np.linalg.norm(hull_points[1:] - hull_points[:-1], axis=1))
-            if distances > max_radius:
-                max_radius = distances
-                center = point
-
-    return center, max_radius
-
-def visualize_sternum_with_edges_and_circle(slice_image, mask):
-    upper_edge, lower_edge = find_and_interpolate_edges(mask)
-    center, radius = find_max_inscribed_circle(upper_edge, lower_edge)
-
-    plt.figure(figsize=(10, 10))
-    plt.imshow(slice_image, cmap='gray')
-    plt.imshow(mask, alpha=0.3, cmap='Reds')
-    
-    # Plot edges
-    x_range = np.arange(len(upper_edge))
-    plt.plot(x_range, upper_edge, color='blue', linewidth=2)
-    plt.plot(x_range, lower_edge, color='blue', linewidth=2)
-
-    # Plot inscribed circle
-    if center is not None and radius > 0:
-        circle = plt.Circle(center, radius, color='yellow', fill=False, linewidth=2)
-        plt.gca().add_artist(circle)
-
-    plt.title('Sternum with Edges and Max Inscribed Circle')
-    plt.axis('off')
-    plt.tight_layout()
-    plt.show()
-
-def visualize_results(slices, area_proportion_list, circularity_list, region_list):
+def visualize_results(slices, area_proportion_list, circularity_list, inside_circle_proportion_list, region_list):
     def plot_slice(slice_index):
-        plt.figure(figsize=(20, 10))
+        fig, axs = plt.subplots(3, 3, figsize=(20, 20))
+        fig.suptitle(f'Sternum Analysis - Slice {slice_index}', fontsize=16)
         
         # Original slice
-        plt.subplot(231)
-        plt.imshow(slices[slice_index], cmap='gray')
-        plt.title(f'Original Slice {slice_index}')
+        axs[0, 0].imshow(slices[slice_index], cmap='gray')
+        axs[0, 0].set_title('Original Slice')
         
         # Sternum region
-        plt.subplot(232)
         mask = np.zeros_like(slices[slice_index], dtype=bool)
         for x, y in region_list[slice_index]:
             mask[y, x] = True
-        plt.imshow(slices[slice_index], cmap='gray')
-        plt.imshow(mask, cmap='Reds', alpha=0.3)
-        plt.title(f'Sternum Region (Slice {slice_index})')
+        axs[0, 1].imshow(slices[slice_index], cmap='gray')
+        axs[0, 1].imshow(mask, cmap='Reds', alpha=0.3)
+        axs[0, 1].set_title('Sternum Region')
         
         # Metrics
-        plt.subplot(233)
-        plt.text(0.1, 0.6, f'Area Proportion: {area_proportion_list[slice_index]:.2f}%', fontsize=12)
-        plt.text(0.1, 0.4, f'Circularity: {circularity_list[slice_index]:.4f}', fontsize=12)
-        plt.axis('off')
-        plt.title('Metrics')
-        
+        axs[0, 2].axis('off')
+        axs[0, 2].text(0.1, 0.7, f'Area Proportion: {area_proportion_list[slice_index]:.2f}%', fontsize=12)
+        axs[0, 2].text(0.1, 0.5, f'Circularity: {circularity_list[slice_index]:.2f}%', fontsize=12)
+        axs[0, 2].text(0.1, 0.3, f'Inside Circle Proportion: {inside_circle_proportion_list[slice_index]:.2f}%', fontsize=12)
+        axs[0, 2].set_title('Metrics')
+
+        # Area Proportion Plot
+        axs[1, 0].plot(area_proportion_list)
+        axs[1, 0].set_title('Area Proportion')
+        axs[1, 0].set_xlabel('Slice Index')
+        axs[1, 0].set_ylabel('Area Proportion (%)')
+        max_area_index = np.argmax(area_proportion_list)
+        max_area_index_partial = np.argmax(area_proportion_list[10:]) + 10
+        axs[1, 0].text(0.65, 0.95, f'Max (All): {max_area_index}', transform=axs[1, 0].transAxes, fontsize=10)
+        axs[1, 0].text(0.65, 0.85, f'Max (10+): {max_area_index_partial}', transform=axs[1, 0].transAxes, fontsize=12, fontweight='bold')
+        axs[1, 0].axvline(x=slice_index, color='r', linestyle='--')
+        axs[1, 0].axvline(x=10, color='g', linestyle=':')
+
+        # Circularity Plot
+        axs[1, 1].plot(circularity_list)
+        axs[1, 1].set_title('Circularity')
+        axs[1, 1].set_xlabel('Slice Index')
+        axs[1, 1].set_ylabel('Circularity (%)')
+        max_circularity_index = np.argmax(circularity_list)
+        max_circularity_index_partial = np.argmax(circularity_list[10:]) + 10
+        axs[1, 1].text(0.65, 0.95, f'Max (All): {max_circularity_index}', transform=axs[1, 1].transAxes, fontsize=10)
+        axs[1, 1].text(0.65, 0.85, f'Max (10+): {max_circularity_index_partial}', transform=axs[1, 1].transAxes, fontsize=12, fontweight='bold')
+        axs[1, 1].axvline(x=slice_index, color='r', linestyle='--')
+        axs[1, 1].axvline(x=10, color='g', linestyle=':')
+
+        # Inside Circle Proportion Plot
+        axs[1, 2].plot(inside_circle_proportion_list)
+        axs[1, 2].set_title('Inside Circle Proportion')
+        axs[1, 2].set_xlabel('Slice Index')
+        axs[1, 2].set_ylabel('Inside Circle Proportion (%)')
+        max_inside_circle_index = np.argmax(inside_circle_proportion_list)
+        max_inside_circle_index_partial = np.argmax(inside_circle_proportion_list[10:]) + 10
+        axs[1, 2].text(0.65, 0.95, f'Max (All): {max_inside_circle_index}', transform=axs[1, 2].transAxes, fontsize=10)
+        axs[1, 2].text(0.65, 0.85, f'Max (10+): {max_inside_circle_index_partial}', transform=axs[1, 2].transAxes, fontsize=12, fontweight='bold')
+        axs[1, 2].axvline(x=slice_index, color='r', linestyle='--')
+        axs[1, 2].axvline(x=10, color='g', linestyle=':')
+
         # New visualization with edges and inscribed circle
-        plt.subplot(212)
-        visualize_sternum_with_edges_and_circle(slices[slice_index], mask)
+        visualize_sternum_with_edges_and_circle(slices[slice_index], mask, ax=axs[2, 1])
         
+        # Remove empty subplots
+        axs[2, 0].axis('off')
+        axs[2, 2].axis('off')
+
         plt.tight_layout()
         plt.show()
 
     interact(plot_slice, slice_index=IntSlider(min=0, max=len(slices)-1, step=1, value=0))
 
-# メイン処理部分は変更ありません
 
-
-
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy.interpolate import interp1d
-from scipy.spatial import ConvexHull
-from ipywidgets import interact, IntSlider
-
-def find_and_interpolate_edges(mask):
-    # この関数は変更なし
-
-def find_max_inscribed_circle(upper_edge, lower_edge):
-    points = np.column_stack((np.arange(len(upper_edge)), upper_edge))
-    points = np.vstack((points, np.column_stack((np.arange(len(lower_edge)), lower_edge))))
+def visualize_sternum_with_edges_and_circle(slice_image, mask, ax=None):
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(10, 10))
     
-    hull = ConvexHull(points)
-    hull_points = points[hull.vertices]
-
-    max_radius = 0
-    center = None
-
-    x_min, x_max = 256 - 40, 256 + 40  # x座標の制限
-
-    for x in range(max(0, x_min), min(len(upper_edge), x_max + 1)):
-        y_range = np.arange(lower_edge[x], upper_edge[x] + 1)
-        for y in y_range:
-            point = np.array([x, y])
-            distances = np.min(np.abs(np.cross(hull_points[1:] - hull_points[:-1], point - hull_points[:-1])) / 
-                               np.linalg.norm(hull_points[1:] - hull_points[:-1], axis=1))
-            
-            # 円の左端と右端がx_minとx_maxの範囲内に収まるかチェック
-            if distances <= x - x_min and distances <= x_max - x:
-                if distances > max_radius:
-                    max_radius = distances
-                    center = point
-
-    return center, max_radius
-
-def visualize_sternum_with_edges_and_circle(slice_image, mask):
     upper_edge, lower_edge = find_and_interpolate_edges(mask)
-    center, radius = find_max_inscribed_circle(upper_edge, lower_edge)
+    center, radius = find_max_inscribed_circle(mask)
 
-    plt.figure(figsize=(10, 10))
-    plt.imshow(slice_image, cmap='gray')
-    plt.imshow(mask, alpha=0.3, cmap='Reds')
+    ax.imshow(slice_image, cmap='gray')
+    ax.imshow(mask, alpha=0.3, cmap='Reds')
     
     # Plot edges
-    x_range = np.arange(len(upper_edge))
-    plt.plot(x_range, upper_edge, color='blue', linewidth=2)
-    plt.plot(x_range, lower_edge, color='blue', linewidth=2)
+    #x_range = np.arange(len(upper_edge))
+    #ax.plot(x_range, upper_edge, color='blue', linewidth=2)
+    #ax.plot(x_range, lower_edge, color='blue', linewidth=2)
 
     # Plot inscribed circle
     if center is not None and radius > 0:
-        circle = plt.Circle(center, radius, color='yellow', fill=False, linewidth=2)
-        plt.gca().add_artist(circle)
+        try:
+            circle = patches.Circle(center, radius, color='yellow', fill=False, linewidth=2)
+            ax.add_patch(circle)
+        except Exception as e:
+            print(f"Error drawing circle: {e}")
+            print(f"Center: {center}, Radius: {radius}")
 
     # Plot x-coordinate constraints
-    plt.axvline(x=256-40, color='green', linestyle='--', linewidth=1)
-    plt.axvline(x=256+40, color='green', linestyle='--', linewidth=1)
+    ax.axvline(x=256-40, color='green', linestyle='--', linewidth=1)
+    ax.axvline(x=256+40, color='green', linestyle='--', linewidth=1)
 
-    plt.title('Sternum with Edges and Max Inscribed Circle')
-    plt.axis('off')
-    plt.tight_layout()
+    ax.set_title('Sternum with Edges and Max Inscribed Circle')
+    ax.axis('off')
 
-def visualize_results(slices, area_proportion_list, circularity_list, region_list):
-    # この関数は変更なし
 
-# メイン処理部分は変更ありません
+# メイン処理
+example_person_dicom_dir_path = "/content/drive/Shareddrives/複数手法を用いた256画素CT画像の主観評価/本番環境/data/2_1_島村先生にアップロード頂いたファイルの整理dataのうち必要な患者のseries2のdata/0024_20201210_2"
+
+slices = process_dicom_directory(example_person_dicom_dir_path)
+area_proportion_list, circularity_list, inside_circle_proportion_list, region_list = analyze_slices(slices)
+
+# 結果の表示
+print("Area Proportion List:", area_proportion_list)
+print("Circularity List:", circularity_list)
+print("Inside Circle Proportion List:", inside_circle_proportion_list)
+
+# インタラクティブな可視化
+visualize_results(slices, area_proportion_list, circularity_list, inside_circle_proportion_list, region_list)
