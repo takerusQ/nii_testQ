@@ -310,3 +310,25 @@ print("Inside Circle Proportion List:", inside_circle_proportion_list)
 
 # インタラクティブな可視化
 visualize_results(slices, area_proportion_list, circularity_list, inside_circle_proportion_list, region_list)
+
+
+
+<ipython-input-107-c91e49a5a608>:32: RuntimeWarning: invalid value encountered in divide
+  circularity = circle_area / sternum_area * 100
+---------------------------------------------------------------------------
+TypeError                                 Traceback (most recent call last)
+<ipython-input-107-c91e49a5a608> in <cell line: 125>()
+    123 
+    124 slices = process_dicom_directory(example_person_dicom_dir_path)
+--> 125 area_proportion_list, circularity_list, inside_circle_proportion_list, region_list = analyze_slices(slices)
+    126 
+    127 # 結果の表示
+
+<ipython-input-107-c91e49a5a608> in analyze_slices(slices)
+     34         # Inside Circle Proportion
+     35         y, x = np.ogrid[:mask.shape[0], :mask.shape[1]]
+---> 36         circle_mask = ((x - center[0])**2 + (y - center[1])**2 <= radius**2)
+     37         inside_circle_area = np.sum(mask & circle_mask)
+     38         inside_circle_proportion = inside_circle_area / circle_area * 100
+
+TypeError: 'NoneType' object is not subscriptable
