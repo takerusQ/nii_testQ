@@ -332,3 +332,96 @@ TypeError                                 Traceback (most recent call last)
      38         inside_circle_proportion = inside_circle_area / circle_area * 100
 
 TypeError: 'NoneType' object is not subscriptable
+
+
+
+
+
+def analyze_slices(slices):
+    area_proportion_list = []
+    circularity_list = []
+    inside_circle_proportion_list = []
+    region_list = []
+
+    for slice in slices:
+        mask = create_sternum_mask(slice)  # この関数は別途定義が必要です
+        center, radius = find_max_inscribed_circle(mask)
+        
+        # 胸骨領域の面積
+        sternum_area = np.sum(mask)
+        
+        # 画像全体の面積
+        total_area = mask.size
+        
+        # Area Proportion（既存の定義）
+        area_proportion = sternum_area / total_area * 100
+        
+        if center is not None and radius > 0:
+            # 内接円の面積
+            circle_area = np.pi * radius ** 2
+            
+            # 新しいCircularity定義
+            circularity = circle_area / sternum_area * 100 if sternum_area > 0 else 0
+            
+            # Inside Circle Proportion
+            y, x = np.ogrid[:mask.shape[0], :mask.shape[1]]
+            circle_mask = ((x - center[0])**2 + (y - center[1])**2 <= radius**2)
+            inside_circle_area = np.sum(mask & circle_mask)
+            inside_circle_proportion = inside_circle_area / circle_area * 100 if circle_area > 0 else 0
+        else:
+            circularity = 0
+            inside_circle_proportion = 0
+
+        area_proportion_list.append(area_proportion)
+        circularity_list.append(circularity)
+        inside_circle_proportion_list.append(inside_circle_proportion)
+        region_list.append(np.argwhere(mask))
+
+    return area_proportion_list, circularity_list, inside_circle_proportion_list, region_list
+
+# find_max_inscribed_circle 関数も修正が必要かもしれません
+def find_max_inscribed_circle(mask):
+    # マスクの輪郭を取得
+    contours, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    if not contours:
+        return None, 0
+
+    # x座標の制限（256±40）
+    x_min, x_max = 256 - 40, 256 + 40
+
+    # 距離マップを計算
+    dist_map = cv2.distanceTransform(mask.astype(np.uint8), cv2.DIST_L2, 5)
+    
+    # x座標制限を適用
+    dist_map[:, :x_min] = 0
+    dist_map[:, x_max:] = 0
+
+    # 最大距離とその位置を取得
+    _, max_val, _, max_loc = cv2.minMaxLoc(dist_map)
+
+    if max_val == 0:
+        return None, 0
+
+    return max_loc, max_val
+
+# visualize_results 関数も少し修正が必要です
+def visualize_results(slices, area_proportion_list, circularity_list, inside_circle_proportion_list, region_list):
+    def plot_slice(slice_index):
+        plt.figure(figsize=(20, 15))
+        
+        # ... (他の部分は変更なし)
+
+        # Metrics
+        plt.subplot(233)
+        plt.text(0.1, 0.7, f'Area Proportion: {area_proportion_list[slice_index]:.2f}%', fontsize=12)
+        plt.text(0.1, 0.5, f'Circularity: {circularity_list[slice_index]:.2f}%', fontsize=12)
+        plt.text(0.1, 0.3, f'Inside Circle Proportion: {inside_circle_proportion_list[slice_index]:.2f}%', fontsize=12)
+        plt.axis('off')
+        plt.title('Metrics')
+
+        # ... (他の部分は変更なし)
+
+    interact(plot_slice, slice_index=IntSlider(min=0, max=len(slices)-1, step=1, value=0))
+
+# メイン処理部分は変更なし
