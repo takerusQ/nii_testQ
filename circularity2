@@ -1,218 +1,29 @@
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy.interpolate import interp1d
-import cv2
-from ipywidgets import interact, IntSlider
+center, radius = find_max_inscribed_circle(mask)で求めた内接円を利用する。
+・area_proportion_listはこれまでregion内部のmaskの割合を計算し格納してきたが、新しく、内接円内部に限定したmaskの割合をinside_circle_proportionとして、inside_circle_proportion_listに格納したい。
+・circularityの計算方法も外接円ではなく内接円の面積/regionの面積に変更してほしい
 
-# 既存の関数（find_and_interpolate_edges, find_max_inscribed_circle）はそのまま使用
+        plt.subplot(234)
+        plt.plot(area_proportion_list)
+        plt.title('Area Proportion')
+        plt.xlabel('Slice Index')
+        plt.ylabel('Area Proportion (%)')
+        max_area_index = np.argmax(area_proportion_list)
+        max_area_index_partial = np.argmax(area_proportion_list[10:]) + 10
+        plt.text(0.65, 0.95, f'Max (All): {max_area_index}', transform=plt.gca().transAxes, fontsize=10)
+        plt.text(0.65, 0.85, f'Max (10+): {max_area_index_partial}', transform=plt.gca().transAxes, fontsize=12, fontweight='bold')
+        plt.axvline(x=slice_index, color='r', linestyle='--')
+        plt.axvline(x=10, color='g', linestyle=':')
 
-def analyze_sternum(mask):
-    sternum_area = np.sum(mask)
-    center, radius = find_max_inscribed_circle(mask)
-    
-    # 新しいcircularity定義：内接円面積 / 胸骨領域面積 * 100
-    circularity = (np.pi * radius ** 2) / sternum_area * 100
-    
-    # Area Proportion（既存の定義を使用）
-    total_area = mask.size
-    area_proportion = sternum_area / total_area * 100
-    
-    return area_proportion, circularity, radius
+        plt.subplot(235)
+        plt.plot(circularity_list)
+        plt.title('Circularity')
+        plt.xlabel('Slice Index')
+        plt.ylabel('Circularity')
+        max_circularity_index = np.argmax(circularity_list)
+        max_circularity_index_partial = np.argmax(circularity_list[10:]) + 10
+        plt.text(0.65, 0.95, f'Max (All): {max_circularity_index}', transform=plt.gca().transAxes, fontsize=10)
+        plt.text(0.65, 0.85, f'Max (10+): {max_circularity_index_partial}', transform=plt.gca().transAxes, fontsize=12, fontweight='bold')
+        plt.axvline(x=slice_index, color='r', linestyle='--')
+        plt.axvline(x=10, color='g', linestyle=':')
 
-def visualize_sternum_with_edges_and_circle(slice_image, mask):
-    upper_edge, lower_edge = find_and_interpolate_edges(mask)
-    center, radius = find_max_inscribed_circle(mask)
-
-    plt.figure(figsize=(10, 10))
-    plt.imshow(slice_image, cmap='gray')
-    plt.imshow(mask, alpha=0.3, cmap='Reds')
-    
-    # Plot edges
-    x_range = np.arange(len(upper_edge))
-    plt.plot(x_range, upper_edge, color='blue', linewidth=2)
-    plt.plot(x_range, lower_edge, color='blue', linewidth=2)
-
-    # Plot inscribed circle
-    if center is not None and radius > 0:
-        circle = plt.Circle(center, radius, color='yellow', fill=False, linewidth=2)
-        plt.gca().add_artist(circle)
-
-    # Plot x-coordinate constraints
-    plt.axvline(x=256-40, color='green', linestyle='--', linewidth=1)
-    plt.axvline(x=256+40, color='green', linestyle='--', linewidth=1)
-
-    plt.title('Sternum with Edges and Max Inscribed Circle')
-    plt.axis('off')
-    plt.tight_layout()
-
-def visualize_results(slices, masks):
-    def plot_slice(slice_index):
-        plt.figure(figsize=(20, 10))
-        
-        # Original slice
-        plt.subplot(231)
-        plt.imshow(slices[slice_index], cmap='gray')
-        plt.title(f'Original Slice {slice_index}')
-        
-        # Sternum region
-        plt.subplot(232)
-        mask = masks[slice_index]
-        plt.imshow(slices[slice_index], cmap='gray')
-        plt.imshow(mask, cmap='Reds', alpha=0.3)
-        plt.title(f'Sternum Region (Slice {slice_index})')
-        
-        # Metrics
-        plt.subplot(233)
-        area_proportion, circularity, radius = analyze_sternum(mask)
-        plt.text(0.1, 0.7, f'Area Proportion: {area_proportion:.2f}%', fontsize=12)
-        plt.text(0.1, 0.5, f'Circularity: {circularity:.2f}%', fontsize=12)
-        plt.text(0.1, 0.3, f'Inscribed Circle Radius: {radius:.2f}', fontsize=12)
-        plt.axis('off')
-        plt.title('Metrics')
-        
-        # New visualization with edges and inscribed circle
-        plt.subplot(212)
-        visualize_sternum_with_edges_and_circle(slices[slice_index], mask)
-        
-        plt.tight_layout()
-        plt.show()
-
-    interact(plot_slice, slice_index=IntSlider(min=0, max=len(slices)-1, step=1, value=0))
-
-# メイン処理
-def main(dicom_dir_path):
-    slices = process_dicom_directory(dicom_dir_path)
-    masks = [create_sternum_mask(slice) for slice in slices]
-    visualize_results(slices, masks)
-
-# DICOM処理とマスク作成の関数（これらは既存のコードを使用すると仮定）
-def process_dicom_directory(dicom_dir_path):
-    # DICOMファイルを読み込み、スライスのリストを返す
-    pass
-
-def create_sternum_mask(slice):
-    # スライスから胸骨領域のマスクを作成
-    pass
-
-# 使用例
-example_person_dicom_dir_path = "/path/to/dicom/directory"
-main(example_person_dicom_dir_path)
-
-###############################
-
-
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy.interpolate import interp1d
-import cv2
-from ipywidgets import interact, IntSlider
-
-def find_and_interpolate_edges(mask):
-    height, width = mask.shape
-    upper_edge = np.full(width, -1)
-    lower_edge = np.full(width, height)
-
-    for x in range(width):
-        column = mask[:, x]
-        if np.any(column):
-            upper_edge[x] = np.max(np.where(column)[0])
-            lower_edge[x] = np.min(np.where(column)[0])
-
-    # Interpolate missing points
-    x_range = np.arange(width)
-    valid_upper = upper_edge != -1
-    valid_lower = lower_edge != height
-
-    if np.any(valid_upper):
-        f_upper = interp1d(x_range[valid_upper], upper_edge[valid_upper], kind='linear', fill_value='extrapolate')
-        upper_edge = f_upper(x_range)
-
-    if np.any(valid_lower):
-        f_lower = interp1d(x_range[valid_lower], lower_edge[valid_lower], kind='linear', fill_value='extrapolate')
-        lower_edge = f_lower(x_range)
-
-    return upper_edge, lower_edge
-
-def find_max_inscribed_circle(mask):
-    # マスクの輪郭を取得
-    contours, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    if not contours:
-        return None, 0
-
-    # x座標の制限（256±40）
-    x_min, x_max = 256 - 40, 256 + 40
-
-    # 距離マップを計算
-    dist_map = cv2.distanceTransform(mask.astype(np.uint8), cv2.DIST_L2, 5)
-    
-    # x座標制限を適用
-    dist_map[:, :x_min] = 0
-    dist_map[:, x_max:] = 0
-
-    # 最大距離とその位置を取得
-    _, max_val, _, max_loc = cv2.minMaxLoc(dist_map)
-
-    return max_loc, max_val
-
-def visualize_sternum_with_edges_and_circle(slice_image, mask):
-    upper_edge, lower_edge = find_and_interpolate_edges(mask)
-    center, radius = find_max_inscribed_circle(mask)
-
-    plt.figure(figsize=(10, 10))
-    plt.imshow(slice_image, cmap='gray')
-    plt.imshow(mask, alpha=0.3, cmap='Reds')
-    
-    # Plot edges
-    x_range = np.arange(len(upper_edge))
-    plt.plot(x_range, upper_edge, color='blue', linewidth=2)
-    plt.plot(x_range, lower_edge, color='blue', linewidth=2)
-
-    # Plot inscribed circle
-    if center is not None and radius > 0:
-        circle = plt.Circle(center, radius, color='yellow', fill=False, linewidth=2)
-        plt.gca().add_artist(circle)
-
-    # Plot x-coordinate constraints
-    plt.axvline(x=256-40, color='green', linestyle='--', linewidth=1)
-    plt.axvline(x=256+40, color='green', linestyle='--', linewidth=1)
-
-    plt.title('Sternum with Edges and Max Inscribed Circle')
-    plt.axis('off')
-    plt.tight_layout()
-
-def visualize_results(slices, area_proportion_list, circularity_list, region_list):
-    def plot_slice(slice_index):
-        plt.figure(figsize=(20, 10))
-        
-        # Original slice
-        plt.subplot(231)
-        plt.imshow(slices[slice_index], cmap='gray')
-        plt.title(f'Original Slice {slice_index}')
-        
-        # Sternum region
-        plt.subplot(232)
-        mask = np.zeros_like(slices[slice_index], dtype=bool)
-        for x, y in region_list[slice_index]:
-            mask[y, x] = True
-        plt.imshow(slices[slice_index], cmap='gray')
-        plt.imshow(mask, cmap='Reds', alpha=0.3)
-        plt.title(f'Sternum Region (Slice {slice_index})')
-        
-        # Metrics
-        plt.subplot(233)
-        plt.text(0.1, 0.6, f'Area Proportion: {area_proportion_list[slice_index]:.2f}%', fontsize=12)
-        plt.text(0.1, 0.4, f'Circularity: {circularity_list[slice_index]:.4f}', fontsize=12)
-        plt.axis('off')
-        plt.title('Metrics')
-        
-        # New visualization with edges and inscribed circle
-        plt.subplot(212)
-        visualize_sternum_with_edges_and_circle(slices[slice_index], mask)
-        
-        plt.tight_layout()
-        plt.show()
-
-    interact(plot_slice, slice_index=IntSlider(min=0, max=len(slices)-1, step=1, value=0))
-
-# メイン処理部分は変更ありません
+同じように、plt.subplot(236)でinside_circle_proportion_list
