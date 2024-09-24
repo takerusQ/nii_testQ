@@ -1,3 +1,174 @@
+
+import matplotlib.pyplot as plt
+from scipy.interpolate import interp1d
+import cv2
+from ipywidgets import interact, IntSlider
+
+def find_and_interpolate_edges(mask):
+    height, width = mask.shape
+    upper_edge = np.full(width, -1)
+    lower_edge = np.full(width, height)
+
+    for x in range(width):
+        column = mask[:, x]
+        if np.any(column):
+            upper_edge[x] = np.max(np.where(column)[0])
+            lower_edge[x] = np.min(np.where(column)[0])
+
+    # Interpolate missing points
+    x_range = np.arange(width)
+    valid_upper = upper_edge != -1
+    valid_lower = lower_edge != height
+
+    if np.any(valid_upper):
+        f_upper = interp1d(x_range[valid_upper], upper_edge[valid_upper], kind='linear', fill_value='extrapolate')
+        upper_edge = f_upper(x_range)
+
+    if np.any(valid_lower):
+        f_lower = interp1d(x_range[valid_lower], lower_edge[valid_lower], kind='linear', fill_value='extrapolate')
+        lower_edge = f_lower(x_range)
+
+    return upper_edge, lower_edge
+
+def find_max_inscribedcircle(mask):
+    # マスクの輪郭を取得
+    contours,  = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    if not contours:
+        return None, 0
+
+    # x座標の制限（256±40）
+    x_min, x_max = 256 - 40, 256 + 40
+
+    # 距離マップを計算
+    dist_map = cv2.distanceTransform(mask.astype(np.uint8), cv2.DIST_L2, 5)
+
+    # x座標制限を適用
+    dist_map[:, :x_min] = 0
+    dist_map[:, x_max:] = 0
+
+    # 最大距離とその位置を取得
+    maxval, max_loc = cv2.minMaxLoc(dist_map)
+
+    return max_loc, max_val
+
+def visualize_sternum_with_edges_and_circle(slice_image, mask):
+    upper_edge, lower_edge = find_and_interpolate_edges(mask)
+    center, radius = find_max_inscribed_circle(mask)
+
+    plt.figure(figsize=(10, 10))
+    plt.imshow(slice_image, cmap='gray')
+    plt.imshow(mask, alpha=0.3, cmap='Reds')
+
+    # Plot edges
+    x_range = np.arange(len(upper_edge))
+    plt.plot(x_range, upper_edge, color='blue', linewidth=2)
+    plt.plot(x_range, lower_edge, color='blue', linewidth=2)
+
+    # Plot inscribed circle
+    if center is not None and radius > 0:
+        circle = plt.Circle(center, radius, color='yellow', fill=False, linewidth=2)
+        plt.gca().add_artist(circle)
+
+    # Plot x-coordinate constraints
+    plt.axvline(x=256-40, color='green', linestyle='--', linewidth=1)
+    plt.axvline(x=256+40, color='green', linestyle='--', linewidth=1)
+
+    plt.title('Sternum with Edges and Max Inscribed Circle')
+    plt.axis('off')
+    plt.tight_layout()
+
+def visualize_results(slices, area_proportion_list, area_proportion_in_circle_list, region_list):
+    def plot_slice(slice_index):
+        plt.figure(figsize=(20, 10))
+
+        # Original slice
+        plt.subplot(231)
+        plt.imshow(slices[slice_index], cmap='gray')
+        plt.title(f'Original Slice {slice_index}')
+
+        # Sternum region
+        plt.subplot(232)
+        mask = np.zeros_like(slices[slice_index], dtype=bool)
+        for y, x in region_list[slice_index]:
+            mask[y, x] = True
+        plt.imshow(slices[slice_index], cmap='gray')
+        plt.imshow(mask, cmap='Reds', alpha=0.3)
+        plt.title(f'Sternum Region (Slice {slice_index})')
+
+        # Metrics
+        plt.subplot(233)
+        plt.text(0.1, 0.6, f'Area Proportion: {area_proportion_list[slice_index]:.2f}%', fontsize=12)
+        plt.text(0.1, 0.4, f'area_proportion_in_circle: {area_proportion_in_circle_list[slice_index]:.4f}', fontsize=12)
+        plt.axis('off')
+        plt.title('Metrics')
+
+        # New visualization with edges and inscribed circle
+        plt.subplot(212)
+        visualize_sternum_with_edges_and_circle(slices[slice_index], mask)
+
+        plt.tight_layout()
+        plt.show()
+
+        # Area Proportion Plot
+        plt.subplot(234)
+        plt.plot(area_proportion_list)
+        plt.title('Area Proportion')
+        plt.xlabel('Slice Index')
+        plt.ylabel('Area Proportion (%)')
+        max_area_index = np.argmax(area_proportion_list)
+        max_area_index_partial = np.argmax(area_proportion_list[10:]) + 10
+        plt.text(0.65, 0.95, f'Max (All): {max_area_index}', transform=plt.gca().transAxes, fontsize=10)
+        plt.text(0.65, 0.85, f'Max (10+): {max_area_index_partial}', transform=plt.gca().transAxes, fontsize=12, fontweight='bold')
+        plt.axvline(x=slice_index, color='r', linestyle='--')
+        plt.axvline(x=10, color='g', linestyle=':')
+
+        # area_proportion_in_circle_list Plot
+        plt.subplot(235)
+        plt.plot(area_proportion_in_circle_list)
+        plt.title('area_proportion_in_circle')
+        plt.xlabel('Slice Index')
+        plt.ylabel('area_proportion_in_circle')
+        max_circularity_index = np.argmax(area_proportion_in_circle_list)
+        max_circularity_index_partial = np.argmax(area_proportion_in_circle_list[10:]) + 10
+        #plt.text(0.65, 0.95, f'Max (All): {max_index}', transform=plt.gca().transAxes, fontsize=10)
+        #plt.text(0.65, 0.85, f'Max (10+): {max_index_partial}', transform=plt.gca().transAxes, fontsize=12, fontweight='bold')
+        plt.axvline(x=slice_index, color='r', linestyle='--')
+        plt.axvline(x=10, color='g', linestyle=':')
+
+        plt.tight_layout()
+        plt.show()
+
+    interact(plot_slice, slice_index=IntSlider(min=0, max=len(slices)-1, step=1, value=0))
+
+example_person_dicom_dir_path = "/content/drive/Shareddrives/複数手法を用いた256画素CT画像の主観評価/本番環境/data/2_1_島村先生にアップロード頂いたファイルの整理dataのうち必要な患者のseries2のdata/0017_20190829_2"
+slices = process_dicom_directory(example_person_dicom_dir_path)
+area_proportion_list, area_proportion_in_circle_list, region_list = analyze_slices(slices)
+
+# 結果の表示
+print("Area Proportion List:", area_proportion_list)
+print("area_proportion_in_circle List:", area_proportion_in_circle_list)
+
+# インタラクティブな可視化
+visualize_results(slices, area_proportion_list, area_proportion_in_circle_list, region_list)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import matplotlib.pyplot as plt
 from ipywidgets import interact, IntSlider
 import matplotlib.patches as patches
