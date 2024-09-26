@@ -24,31 +24,28 @@ def convert_pdf_to_images(pdf_path, output_folder):
         raise
 
 def create_continuous_looping_audio(audio_clip, total_duration, fade_duration=1):
-    """Create continuous looping audio with fade in/out"""
+    """Create continuous looping audio with fade in/out and no silent end"""
     looped_clips = []
     current_duration = 0
     
-    num_full_loops = math.ceil(total_duration / audio_clip.duration)
-    
-    for i in range(num_full_loops):
-        clip = audio_clip.copy()
+    while current_duration < total_duration:
+        remaining_duration = total_duration - current_duration
+        if remaining_duration >= audio_clip.duration:
+            clip = audio_clip.copy()
+        else:
+            clip = audio_clip.subclip(0, remaining_duration)
         
-        # Apply fade in to the first clip and fade out to the last clip
-        if i == 0:
+        # Apply fade in to the first clip
+        if current_duration == 0:
             clip = clip.audio_fadein(fade_duration)
-        if i == num_full_loops - 1:
-            clip = clip.audio_fadeout(fade_duration)
         
-        if current_duration + clip.duration > total_duration:
-            # Trim the last clip to fit the total duration
-            clip = clip.subclip(0, total_duration - current_duration)
+        # Apply fade out to the last clip
+        if current_duration + clip.duration >= total_duration:
+            clip = clip.audio_fadeout(fade_duration)
         
         looped_clips.append(clip)
         current_duration += clip.duration
-        
-        if current_duration >= total_duration:
-            break
-    
+
     return CompositeAudioClip(looped_clips)
 
 def create_video_from_images(image_paths, output_video_path, music_path):
