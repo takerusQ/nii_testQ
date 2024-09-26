@@ -23,30 +23,16 @@ def convert_pdf_to_images(pdf_path, output_folder):
         logging.error(f"Failed to convert PDF to images: {e}")
         raise
 
-def create_continuous_looping_audio(audio_clip, total_duration, fade_duration=1):
-    """Create continuous looping audio with fade in/out and no silent end"""
-    looped_clips = []
-    current_duration = 0
-    
-    while current_duration < total_duration:
-        remaining_duration = total_duration - current_duration
-        if remaining_duration >= audio_clip.duration:
-            clip = audio_clip.copy()
-        else:
-            clip = audio_clip.subclip(0, remaining_duration)
-        
-        # Apply fade in to the first clip
-        if current_duration == 0:
-            clip = clip.audio_fadein(fade_duration)
-        
-        # Apply fade out to the last clip
-        if current_duration + clip.duration >= total_duration:
-            clip = clip.audio_fadeout(fade_duration)
-        
-        looped_clips.append(clip)
-        current_duration += clip.duration
-
-    return CompositeAudioClip(looped_clips)
+def adjust_audio_length(audio_clip, target_duration, fade_duration=1):
+    """Adjust audio length to match video duration"""
+    if audio_clip.duration > target_duration:
+        # If audio is longer, just trim it
+        return audio_clip.subclip(0, target_duration).audio_fadeout(fade_duration)
+    else:
+        # If audio is shorter, loop it
+        num_loops = math.ceil(target_duration / audio_clip.duration)
+        looped_audio = audio_clip.loop(n=num_loops)
+        return looped_audio.subclip(0, target_duration).audio_fadeout(fade_duration)
 
 def create_video_from_images(image_paths, output_video_path, music_path):
     """Create video from images"""
@@ -60,9 +46,9 @@ def create_video_from_images(image_paths, output_video_path, music_path):
             audio_clip = AudioFileClip(music_path)
             total_duration = video.duration
             
-            looped_audio = create_continuous_looping_audio(audio_clip, total_duration)
+            adjusted_audio = adjust_audio_length(audio_clip, total_duration)
             
-            final_video = video.set_audio(looped_audio)
+            final_video = video.set_audio(adjusted_audio)
         else:
             logging.warning("Music file not found. Creating video without audio.")
             final_video = video
