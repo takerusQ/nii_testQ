@@ -1,3 +1,14 @@
+import os
+import slicer
+import time
+import datetime
+from io import StringIO
+import sys
+import qt
+import ctk
+import gc  # これを追加
+
+# ... （残りのコード）
 # シーンのクリーンアップ
 print("シーンのクリーンアップを実行中...")
 
