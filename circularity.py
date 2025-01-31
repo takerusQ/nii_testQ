@@ -1,3 +1,38 @@
+# シーンのクリーンアップ
+print("シーンのクリーンアップを実行中...")
+
+# すべてのノードを削除
+slicer.mrmlScene.Clear(0)
+
+# モジュールをリセット
+if hasattr(slicer.modules, 'monaiauto3dseg'):
+    widget = slicer.modules.monaiauto3dseg.widgetRepresentation()
+    if widget:
+        # 入力/出力セレクターをクリア
+        selectors = ['inputNodeSelector0', 'outputSegmentationSelector']
+        for selector_name in selectors:
+            selector = find_widget(widget, slicer.qMRMLNodeComboBox, selector_name)
+            if selector:
+                selector.setCurrentNode(None)
+        
+        # プログレスバーをリセット
+        progress_bar = find_widget(widget, qt.QProgressBar, 'progressBar')
+        if progress_bar:
+            progress_bar.reset()
+
+# メモリの解放を促す
+gc.collect()
+
+print("クリーンアップ完了")
+
+# ログファイルを閉じる
+sys.stdout.log_file.close()
+sys.stdout = sys.stdout.terminal
+
+
+
+
+
 from pydub import AudioSegment
 import os
 
