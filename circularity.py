@@ -249,82 +249,96 @@ def copy_segments(target_node, source_node, segment_names):
         print(f"セグメントコピーエラー: {str(e)}")
 
 def export_segmentation(node, output_path, reference_volume_node):
-    """セグメンテーションをNIFTIとしてエクスポート"""
+    """セグメンテーションをNIFTIとしてエクスポート（改善版）"""
     try:
-        # セグメンテーションのラベル値を設定
+        print("セグメンテーションのエクスポート開始...")
+        
+        # セグメントの名前とラベル値のマッピング
+        label_mapping = {
+            "L2 vertebra": 1,
+            "L1 vertebra": 2,
+            "T12 vertebra": 3,
+            "T11 vertebra": 4,
+            "T10 vertebra": 5,
+            "T9 vertebra": 6,
+            "T8 vertebra": 7,
+            "T7 vertebra": 8,
+            "T6 vertebra": 9,
+            "T5 vertebra": 10,
+            "T4 vertebra": 11,
+            "T3 vertebra": 12,
+            "T2 vertebra": 13,
+            "T1 vertebra": 14,
+            "C7 vertebra": 15,
+            "left deep back muscle": 16,
+            "right deep back muscle": 17,
+            "aorta": 18
+        }
+
         segments = node.GetSegmentation()
+        
+        # 現在のセグメントの状態を表示
+        print("\n現在のセグメント:")
+        for i in range(segments.GetNumberOfSegments()):
+            segment_id = segments.GetNthSegmentID(i)
+            segment = segments.GetSegment(segment_id)
+            print(f"- {segment.GetName()} (ID: {segment_id})")
+
+        # 各セグメントにラベル値を設定
         for i in range(segments.GetNumberOfSegments()):
             segment_id = segments.GetNthSegmentID(i)
             segment = segments.GetSegment(segment_id)
             segment_name = segment.GetName()
+            
+            if segment_name in label_mapping:
+                label_value = str(label_mapping[segment_name])
+                segment.SetTag("Label", label_value)
+                print(f"ラベル設定: {segment_name} -> {label_value}")
+            else:
+                print(f"警告: 未知のセグメント名 {segment_name}")
 
-            # ラベル値の割り当て
-            if segment_name == "L2 vertebra":
-                segment.SetTag("Label", "1")
-            elif segment_name == "L1 vertebra":
-                segment.SetTag("Label", "2")
-            elif segment_name == "T12 vertebra":
-                segment.SetTag("Label", "3")
-            elif segment_name == "T11 vertebra":
-                segment.SetTag("Label", "4")
-            elif segment_name == "T10 vertebra":
-                segment.SetTag("Label", "5")
-            elif segment_name == "T9 vertebra":
-                segment.SetTag("Label", "6")
-            elif segment_name == "T8 vertebra":
-                segment.SetTag("Label", "7")
-            elif segment_name == "T7 vertebra":
-                segment.SetTag("Label", "8")
-            elif segment_name == "T6 vertebra":
-                segment.SetTag("Label", "9")
-            elif segment_name == "T5 vertebra":
-                segment.SetTag("Label", "10")
-            elif segment_name == "T4 vertebra":
-                segment.SetTag("Label", "11")
-            elif segment_name == "T3 vertebra":
-                segment.SetTag("Label", "12")
-            elif segment_name == "T2 vertebra":
-                segment.SetTag("Label", "13")
-            elif segment_name == "T1 vertebra":
-                segment.SetTag("Label", "14")
-            elif segment_name == "C7 vertebra":
-                segment.SetTag("Label", "15")
-            elif segment_name == "left deep back muscle":
-                segment.SetTag("Label", "16")
-            elif segment_name == "right deep back muscle":
-                segment.SetTag("Label", "17")
-            elif segment_name == "aorta":
-                segment.SetTag("Label", "18")
-
-        # セグメンテーションをバイナリラベルマップ形式に変換
+        # バイナリラベルマップ表現を作成
+        print("\nバイナリラベルマップ表現の作成...")
         node.GetSegmentation().CreateRepresentation("Binary labelmap")
-        time.sleep(1)  # 変換待機
+        time.sleep(2)  # 変換待機時間を増加
 
         # リファレンスジオメトリを設定
+        print("リファレンスジオメトリの設定...")
         node.SetReferenceImageGeometryParameterFromVolumeNode(reference_volume_node)
         
         # ラベルマップノードを作成
         labelmap_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode")
+        labelmap_node.SetName("temp_export_labelmap")
         
         # セグメンテーションをラベルマップに変換
+        print("ラベルマップへの変換...")
         converter = slicer.vtkSlicerSegmentationsModuleLogic()
-        converter.ExportVisibleSegmentsToLabelmapNode(node, labelmap_node, reference_volume_node)
+        success = converter.ExportVisibleSegmentsToLabelmapNode(node, labelmap_node, reference_volume_node)
         
-        # NIFTIとして保存
-        properties = {
-            'useCompression': 1,
-            'referenceImageGeometry': reference_volume_node
-        }
-        slicer.util.saveNode(labelmap_node, output_path, properties)
-        
-        # 一時ノードを削除
-        slicer.mrmlScene.RemoveNode(labelmap_node)
-        print(f"エクスポート完了: {output_path}")
-        
+        if success:
+            print("ラベルマップ変換成功")
+            # 変換結果の確認
+            array = slicer.util.arrayFromVolume(labelmap_node)
+            unique_labels = np.unique(array)
+            print(f"検出されたラベル値: {unique_labels}")
+            
+            # NIFTIとして保存
+            print(f"NIFTIファイルの保存: {output_path}")
+            slicer.util.saveNode(labelmap_node, output_path, {'useCompression': 1})
+            
+            # クリーンアップ
+            slicer.mrmlScene.RemoveNode(labelmap_node)
+            print("エクスポート完了")
+            return True
+        else:
+            print("エラー: ラベルマップ変換に失敗")
+            return False
+            
     except Exception as e:
         print(f"エクスポートエラー: {str(e)}")
         import traceback
         print(traceback.format_exc())
+        return False
 
 def process_single_case(volume_node, output_folder, case_id):
     """1ケースの処理を実行"""
