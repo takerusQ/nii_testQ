@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>勤怠データ変換ツール (テスト版)</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+        h1, h2 {
+            color: #0056b3;
+        }
+        textarea {
+            width: 100%;
+            min-height: 250px; /* 少し大きく */
+            margin: 10px 0;
+            padding: 15px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-family: 'Consolas', 'Monaco', monospace; /* コードが見やすいフォント */
+            font-size: 0.9em;
+            box-sizing: border-box; /* paddingを含めて幅を計算 */
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            background: #007cba;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background 0.3s ease;
+        }
+        button:hover {
+            background: #005f99;
+        }
+        .output {
+            background: #e9e9e9;
+            padding: 15px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            min-height: 200px; /* 結果が見やすいように大きく */
+            white-space: pre-wrap;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9em;
+            color: #000;
+            border-radius: 5px;
+            overflow-x: auto; /* 横スクロール可能に */
+        }
+        #debug-output {
+            background: #fff3cd; /* 警告色 */
+            padding: 10px;
+            margin-top: 20px;
+            border: 1px solid #ffeeba;
+            color: #856404;
+            font-size: 0.8em;
+            white-space: pre-wrap;
+            min-height: 50px;
+            display: none; /* 初期は非表示 */
+        }
+    </style>
+</head>
+<body>
+    <h1>勤怠データ変換ツール (テスト版)</h1>
+    <p>PowerAppsのHTMLソースを以下のテキストエリアに貼り付けてください。自動的に解析・変換が行われます。</p>
+    
+    <h2>入力データ (PowerApps HTMLをここに貼り付け)</h2>
+    <textarea id="input" placeholder="PowerAppsのHTMLソースを貼り付けてください（貼り付けると自動変換されます）"></textarea>
+    
+    <button onclick="convert()">手動変換</button>
+    <button onclick="clear_all()">クリア</button>
+    
+    <h2>変換結果（Excel AX13:BA74 形式）</h2>
+    <div class="output" id="output">変換結果がここに表示されます。</div>
+    
+    <button onclick="copy_result()" id="copyBtn" style="display:none;">結果をコピー</button>
+
+    <h2>デバッグ情報</h2>
+    <div class="output" id="debug-output"></div>
+
+    <script>
+        // デバッグ出力用の関数
+        function debugLog(message) {
+            const debugOutput = document.getElementById('debug-output');
+            debugOutput.style.display = 'block'; // デバッグ表示を有効にする
+            debugOutput.textContent += message + '\n';
+        }
+
+        // 自動変換の設定
+        document.addEventListener('DOMContentLoaded', function() {
+            const input = document.getElementById('input');
+            
+            // 貼り付け時に自動実行
+            input.addEventListener('paste', function() {
+                // 貼り付けがDOMに反映されるのを待つ
+                setTimeout(() => {
+                    convert();
+                }, 100); 
+            });
+            
+            // 入力変更時も自動実行（タイピングの場合）
+            let timeout;
+            input.addEventListener('input', function() {
+                clearTimeout(timeout);
+                timeout = setTimeout(() => {
+                    // ある程度の文字数になったら変換開始
+                    if (input.value.trim().length > 100) { // 適切な閾値に調整
+                        convert();
+                    }
+                }, 500); // 0.5秒後に実行
+            });
+        });
+
+        function convert() {
+            const input = document.getElementById('input').value;
+            document.getElementById('debug-output').textContent = ''; // デバッグログをクリア
+
+            if (!input.trim()) {
+                document.getElementById('output').textContent = 'データを入力してください。';
+                document.getElementById('copyBtn').style.display = 'none';
+                return;
+            }
+            
+            debugLog('--- 変換開始 ---');
+            debugLog('入力データ長: ' + input.length);
+
+            try {
+                const data = parse_data(input);
+                debugLog('パース結果 (' + data.length + '件):');
+                data.forEach(item => debugLog(JSON.stringify(item)));
+                
+                if (data.length === 0) {
+                    document.getElementById('output').textContent = '勤怠データが見つかりませんでした。';
+                    document.getElementById('copyBtn').style.display = 'none';
+                    return;
+                }
+                
+                const csv = generate_csv(data);
+                document.getElementById('output').textContent = csv;
+                document.getElementById('copyBtn').style.display = 'inline-block';
+                
+                debugLog('--- 変換完了 ---');
+                
+            } catch (error) {
+                console.error('エラー:', error);
+                document.getElementById('output').textContent = '変換中にエラーが発生しました: ' + error.message + '\n詳細をデバッグ情報で確認してください。';
+                document.getElementById('copyBtn').style.display = 'none';
+                debugLog('エラー: ' + error.message);
+                debugLog('スタックトレース:\n' + error.stack);
+            }
+        }
+        
+        // --- データ解析関数 ---
+        function parse_data(input) {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(input, 'text/html');
+
+            const monthRecords = new Map();
+            for (let i = 1; i <= 31; i++) {
+                monthRecords.set(i, {
+                    normal: { startTime: '', endTime: '', breakStartTime: '', breakEndTime: '' },
+                    overtime: { startTime: '', endTime: '' },
+                    hasNormalData: false,
+                    hasOvertimeData: false
+                });
+            }
+
+            const dailyEntryContainers = doc.querySelectorAll('.virtualized-gallery-item');
+            debugLog(`検出された日別エントリコンテナ数: ${dailyEntryContainers.length}`);
+
+            dailyEntryContainers.forEach(container => {
+                const dayAttr = container.getAttribute('aria-posinset');
+                const day = parseInt(dayAttr);
+
+                if (isNaN(day) || day < 1 || day > 31) {
+                    debugLog(`WARN: 無効な日付 (aria-posinset) を検出しました: ${dayAttr} (要素: ${container.outerHTML.substring(0, 100)}...)`);
+                    return;
+                }
+                debugLog(`処理中の日付: ${day}日`);
+                const currentDayRecord = monthRecords.get(day);
+
+                // 各種時刻コントロールからテキストを収集
+                const shukkinTimesElements = container.querySelectorAll('[data-control-name^="ShukkinTime"] .appmagic-label-text');
+                const taikinTimesElements = container.querySelectorAll('[data-control-name^="TaikinTime"] .appmagic-label-text');
+                
+                const allTimes = [];
+
+                shukkinTimesElements.forEach(el => {
+                    const timeText = el.textContent.trim();
+                    if (timeText.match(/^\d{1,2}:\d{2}(:\d{2})?$/)) { // HH:MM または HH:MM:SS
+                        allTimes.push(timeText.substring(0, 5)); // HH:MM 形式に統一
+                    }
+                });
+                taikinTimesElements.forEach(el => {
+                    const timeText = el.textContent.trim();
+                    if (timeText.match(/^\d{1,2}:\d{2}(:\d{2})?$/)) {
+                        allTimes.push(timeText.substring(0, 5));
+                    }
+                });
+
+                // 重複を削除し、時刻順にソート
+                const uniqueSortedTimes = [...new Set(allTimes)].sort();
+                debugLog(`  ${day}日 - 抽出されたユニークな時刻: ${uniqueSortedTimes.join(', ')}`);
+
+                // 勤務タイプ情報
+                const dispShukkinText = container.querySelector('[data-control-name="Lb_DispShukkin"] .appmagic-label-text')?.innerHTML || '';
+                const dispTaikinText = container.querySelector('[data-control-name="Lb_DispTaikin"] .appmagic-label-text')?.innerHTML || '';
+                debugLog(`  ${day}日 - Lb_DispShukkin: "${dispShukkinText.replace(/\n/g, '\\n')}"`);
+                debugLog(`  ${day}日 - Lb_DispTaikin: "${dispTaikinText.replace(/\n/g, '\\n')}"`);
+
+                const hasTeleworkOvertimeLabel = dispShukkinText.includes('テレ2h') || dispTaikinText.includes('テレ2h');
+                const hasNormalWorkLabel = dispShukkinText.includes('出勤') || dispShukkinText.includes('テレ1日');
+
+                // 時刻の割り当てロジック
+                if (uniqueSortedTimes.length > 0) {
+                    if (hasNormalWorkLabel) {
+                        currentDayRecord.normal.startTime = uniqueSortedTimes[0];
+                        currentDayRecord.hasNormalData = true;
+
+                        if (uniqueSortedTimes.length >= 2) {
+                            currentDayRecord.normal.endTime = uniqueSortedTimes[1];
+                        }
+                        
+                        // 中断時間・再開時間の可能性がある時刻を探す
+                        // 例: "26 (月) 出勤 9:10 退勤 19:57 9:30" の 9:30 のようなケース
+                        // HTMLのデータとこのロジックが一致するか要確認
+                        // 現状では、3番目以降の時刻は残業として扱うことを優先
+                        if (uniqueSortedTimes.length >= 4 && hasTeleworkOvertimeLabel) {
+                            // 通常勤務の始業・終業、残業の始業・終業が揃っていると仮定
+                            currentDayRecord.overtime.startTime = uniqueSortedTimes[2];
+                            currentDayRecord.overtime.endTime = uniqueSortedTimes[3];
+                            currentDayRecord.hasOvertimeData = true;
+                        } else if (uniqueSortedTimes.length >= 3 && hasTeleworkOvertimeLabel) {
+                            // 3つ目の時刻が残業始業時間と仮定 (残業終業がない場合)
+                            currentDayRecord.overtime.startTime = uniqueSortedTimes[2];
+                            currentDayRecord.hasOvertimeData = true;
+                        }
+
+                    } else if (hasTeleworkOvertimeLabel && uniqueSortedTimes.length >= 2) {
+                        // 通常勤務ラベルがなく、テレワーク残業ラベルがあり、時刻が2つ以上ある場合
+                        // これが単独の残業日の可能性 (例: 休日出勤でテレ2h)
+                        currentDayRecord.overtime.startTime = uniqueSortedTimes[0];
+                        currentDayRecord.overtime.endTime = uniqueSortedTimes[1];
+                        currentDayRecord.hasOvertimeData = true;
+                    }
+                }
+            });
+
+            const resultData = [];
+            monthRecords.forEach(record => {
+                if (record.hasNormalData) {
+                    resultData.push({
+                        day: record.day,
+                        isOvertime: false,
+                        startTime: record.normal.startTime,
+                        endTime: record.normal.endTime,
+                        breakStartTime: record.normal.breakStartTime, // 現状は空
+                        breakEndTime: record.normal.breakEndTime      // 現状は空
+                    });
+                }
+                if (record.hasOvertimeData) {
+                    resultData.push({
+                        day: record.day,
+                        isOvertime: true,
+                        startTime: record.overtime.startTime,
+                        endTime: record.overtime.endTime,
+                        breakStartTime: '',
+                        breakEndTime: ''
+                    });
+                }
+            });
+            
+            resultData.sort((a, b) => a.day - b.day);
+            return resultData;
+        }
+        
+        // --- CSV生成関数 ---
+        function generate_csv(data) {
+            const outputGrid = new Array(31).fill(null).map(() => ({
+                overtimeRow: ['', '', '', ''],
+                normalRow: ['', '', '', '']
+            }));
+
+            data.forEach(entry => {
+                const dayIndex = entry.day - 1;
+
+                if (dayIndex >= 0 && dayIndex < 31) {
+                    if (entry.isOvertime) {
+                        outputGrid[dayIndex].overtimeRow[0] = entry.startTime;
+                        outputGrid[dayIndex].overtimeRow[1] = entry.endTime;
+                    } else {
+                        outputGrid[dayIndex].normalRow[0] = entry.startTime;
+                        outputGrid[dayIndex].normalRow[1] = entry.endTime;
+                        outputGrid[dayIndex].normalRow[2] = entry.breakStartTime;
+                        outputGrid[dayIndex].normalRow[3] = entry.breakEndTime;
+                    }
+                }
+            });
+
+            let csv = '';
+            outputGrid.forEach(dayRecord => {
+                csv += dayRecord.overtimeRow.join('\t') + '\n';
+                csv += dayRecord.normalRow.join('\t') + '\n';
+            });
+            
+            return csv;
+        }
+        
+        function copy_result() {
+            const output = document.getElementById('output').textContent;
+            navigator.clipboard.writeText(output).then(() => {
+                alert('変換結果をクリップボードにコピーしました！');
+            }).catch(err => {
+                // フォールバック
+                const textarea = document.createElement('textarea');
+                textarea.value = output;
+                document.body.appendChild(textarea);
+                textarea.select();
+                try {
+                    document.execCommand('copy');
+                    alert('変換結果をクリップボードにコピーしました！');
+                } catch (e) {
+                    alert('コピーに失敗しました。手動でコピーしてください。');
+                } finally {
+                    document.body.removeChild(textarea);
+                }
+            });
+        }
+        
+        function clear_all() {
+            document.getElementById('input').value = '';
+            document.getElementById('output').textContent = 'PowerAppsの勤怠データを貼り付けると、Excel形式で変換されます';
+            document.getElementById('copyBtn').style.display = 'none';
+            document.getElementById('debug-output').textContent = '';
+            document.getElementById('debug-output').style.display = 'none';
+        }
+    </script>
+</body>
+</html>
