@@ -1,108 +1,434 @@
-楽ちんマン 勤怠データ変換ツール 説明書 📋
-PowerAppsの勤怠データを楽ちんにExcelに転記するツールです！
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>勤怠データ変換ツール (テスト版)</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+        h1, h2 {
+            color: #0056b3;
+        }
+        textarea {
+            width: 100%;
+            min-height: 250px; /* 少し大きく */
+            margin: 10px 0;
+            padding: 15px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-family: 'Consolas', 'Monaco', monospace; /* コードが見やすいフォント */
+            font-size: 0.9em;
+            box-sizing: border-box; /* paddingを含めて幅を計算 */
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            background: #007cba;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background 0.3s ease;
+        }
+        button:hover {
+            background: #005f99;
+        }
+        .output {
+            background: #e9e9e9;
+            padding: 15px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            min-height: 200px; /* 結果が見やすいように大きく */
+            white-space: pre-wrap;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9em;
+            color: #000;
+            border-radius: 5px;
+            overflow-x: auto; /* 横スクロール可能に */
+        }
+        #debug-output {
+            background: #fff3cd; /* 警告色 */
+            padding: 10px;
+            margin-top: 20px;
+            border: 1px solid #ffeeba;
+            color: #856404;
+            font-size: 0.8em;
+            white-space: pre-wrap;
+            min-height: 50px;
+            display: none; /* 初期は非表示 */
+        }
+    </style>
+</head>
+<body>
+    <h1>勤怠データ変換ツール (テスト版)</h1>
+    <p>PowerAppsのHTMLソースを以下のテキストエリアに貼り付けてください。自動的に解析・変換が行われます。</p>
+    
+    <h2>入力データ (PowerApps HTMLをここに貼り付け)</h2>
+    <textarea id="input" placeholder="PowerAppsのHTMLソースを貼り付けてください（貼り付けると自動変換されます）"></textarea>
+    
+    <button onclick="convert()">手動変換</button>
+    <button onclick="clear_all()">クリア</button>
+    
+    <h2>変換結果（Excel AX13:BA74 形式）</h2>
+    <div class="output" id="output">変換結果がここに表示されます。</div>
+    
+    <button onclick="copy_result()" id="copyBtn" style="display:none;">結果をコピー</button>
 
-🎯 事前準備
-デスクトップに以下のファイルを用意してください：
+    <h2>デバッグ情報</h2>
+    <div class="output" id="debug-output"></div>
 
-楽ちんマン.html （変換ツール）
-検証ページコピペ用.txt （空のテキストファイル）
+    <script>
+        // デバッグ出力用の関数
+        function debugLog(message) {
+            const debugOutput = document.getElementById('debug-output');
+            debugOutput.style.display = 'block'; // デバッグ表示を有効にする
+            debugOutput.textContent += message + '\n';
+        }
 
+        // 自動変換の設定
+        document.addEventListener('DOMContentLoaded', function() {
+            const input = document.getElementById('input');
+            
+            // 貼り付け時に自動実行
+            input.addEventListener('paste', function() {
+                // 貼り付けがDOMに反映されるのを待つ
+                setTimeout(() => {
+                    convert();
+                }, 100); 
+            });
+            
+            // 入力変更時も自動実行（タイピングの場合）
+            let timeout;
+            input.addEventListener('input', function() {
+                clearTimeout(timeout);
+                timeout = setTimeout(() => {
+                    // ある程度の文字数になったら変換開始
+                    if (input.value.trim().length > 100) { // 適切な閾値に調整
+                        convert();
+                    }
+                }, 500); // 0.5秒後に実行
+            });
+        });
 
-📝 手順1: PowerAppsからデータを取得
-① PowerAppsで31日分を表示する
+        function convert() {
+            const input = document.getElementById('input').value;
+            document.getElementById('debug-output').textContent = ''; // デバッグログをクリア
 
-PowerAppsの勤怠画面を開く
-下にスクロールして31日目まで表示されるようにする
+            if (!input.trim()) {
+                document.getElementById('output').textContent = 'データを入力してください。';
+                document.getElementById('copyBtn').style.display = 'none';
+                return;
+            }
+            
+            debugLog('--- 変換開始 ---');
+            debugLog('入力データ長: ' + input.length);
+            
+            // 16日目以降の調査用：すべてのaria-posinsetを検索
+            const allAriaPosMatches = input.match(/aria-posinset="(\d+)"/g);
+            if (allAriaPosMatches) {
+                const ariaPosValues = allAriaPosMatches.map(match => match.match(/aria-posinset="(\d+)"/)[1]);
+                debugLog('HTMLで見つかったすべてのaria-posinset値: ' + ariaPosValues.join(', '));
+            }
+            
+            // virtualized-gallery-itemの総数も確認
+            const galleryItemMatches = input.match(/<div[^>]*class="[^"]*virtualized-gallery-item[^"]*"/g);
+            if (galleryItemMatches) {
+                debugLog('virtualized-gallery-itemの総数: ' + galleryItemMatches.length);
+            }
 
-すべての日付が画面に見える状態にしてください
-重要：16日目以降も必ず表示させる
+            try {
+                const data = parse_data(input);
+                debugLog('パース結果 (' + data.length + '件):');
+                data.forEach(item => debugLog(JSON.stringify(item)));
+                
+                if (data.length === 0) {
+                    document.getElementById('output').textContent = '勤怠データが見つかりませんでした。デバッグ情報を確認してください。';
+                    document.getElementById('copyBtn').style.display = 'none';
+                    return;
+                }
+                
+                const csv = generate_csv(data);
+                document.getElementById('output').textContent = csv;
+                document.getElementById('copyBtn').style.display = 'inline-block';
+                
+                debugLog('--- 変換完了 ---');
+                
+            } catch (error) {
+                console.error('エラー:', error);
+                document.getElementById('output').textContent = '変換中にエラーが発生しました: ' + error.message + '\n詳細をデバッグ情報で確認してください。';
+                document.getElementById('copyBtn').style.display = 'none';
+                debugLog('エラー: ' + error.message);
+                debugLog('スタックトレース:\n' + error.stack);
+            }
+        }
+        
+        // --- 時刻処理用ユーティリティ関数 ---
+        function roundDownTo15Minutes(timeString) {
+            // 残業時間を15分刻み（切り捨て）に調整
+            // 例: "25:19" → "25:15", "23:45" → "23:45", "22:07" → "22:00"
+            
+            if (!timeString || !timeString.includes(':')) {
+                return timeString;
+            }
+            
+            const [hours, minutes] = timeString.split(':').map(Number);
+            
+            // 15分刻みに切り捨て
+            const roundedMinutes = Math.floor(minutes / 15) * 15;
+            
+            // HH:MM形式で返す（時間は元のまま、25時や26時もそのまま）
+            const paddedMinutes = roundedMinutes.toString().padStart(2, '0');
+            
+            return `${hours}:${paddedMinutes}`;
+        }
+        
+        // --- データ解析関数 ---
+        function parse_data(input) {
+            const monthRecords = new Map();
+            for (let i = 1; i <= 31; i++) {
+                monthRecords.set(i, {
+                    normal: { startTime: '', endTime: '', breakStartTime: '', breakEndTime: '' },
+                    overtime: { startTime: '', endTime: '' },
+                    hasNormalData: false,
+                    hasOvertimeData: false
+                });
+            }
 
+            // .virtualized-gallery-item から次の .virtualized-gallery-item の直前までを1つのブロックとして抽出
+            // または、最後の .virtualized-gallery-item の場合はファイルの末尾まで
+            // `[\s\S]*?` は非貪欲マッチで、任意の文字（改行含む）にマッチ
+            // `aria-posinset="(\d+)"` で日数をキャプチャ
+            const galleryItemRegex = /<div[^>]*class="[^"]*virtualized-gallery-item[^"]*"[^>]*aria-posinset="(\d+)"[^>]*>([\s\S]*?)(?=<div[^>]*class="[^"]*virtualized-gallery-item[^"]*"|$)/g;
+            
+            let match;
+            let containerCount = 0;
 
+            // input がHTMLテキストであることを前提とする
+            while ((match = galleryItemRegex.exec(input)) !== null) {
+                containerCount++;
+                const day = parseInt(match[1]);
+                const containerHtml = match[2]; // この内部HTMLから時刻やタイプを抽出
 
-② 検証ツールでHTMLをコピーする
+                if (isNaN(day) || day < 1 || day > 31) {
+                    debugLog(`WARN: 無効な日付 (aria-posinset) を検出しました: ${match[1]} (無視)`);
+                    continue;
+                }
+                debugLog(`処理中の日付: ${day}日 (コンテナ #${containerCount})`);
+                const currentDayRecord = monthRecords.get(day);
 
-F12キーを押して開発者ツールを開く
-左上の要素選択ツール（矢印アイコン）をクリック
-画面上の適当な勤務時間をクリック
+                // 各種時刻コントロールからテキストを収集するためのDOMParser (部分的に使用)
+                // ここでDOMParserを使うことで、内部の複雑なHTML構造からテキストを抽出
+                const tempParser = new DOMParser();
+                const tempDoc = tempParser.parseFromString(containerHtml, 'text/html'); // ギャラリーアイテム内部のみをパース
 
-例：「9:15」や「18:30」などの時刻部分
+                const allTimes = [];
 
+                // ShukkinTime系のコントロールを全て取得
+                const shukkinTimesElements = tempDoc.querySelectorAll('[data-control-name^="ShukkinTime"] .appmagic-label-text');
+                shukkinTimesElements.forEach(el => {
+                    const timeText = el.textContent.trim();
+                    if (timeText.match(/^\d{1,2}:\d{2}(:\d{2})?$/)) { // HH:MM または HH:MM:SS
+                        allTimes.push(timeText.substring(0, 5)); // HH:MM 形式に統一
+                    }
+                });
 
-HTML要素を上流に辿る
+                // TaikinTime系のコントロールを全て取得
+                const taikinTimesElements = tempDoc.querySelectorAll('[data-control-name^="TaikinTime"] .appmagic-label-text');
+                taikinTimesElements.forEach(el => {
+                    const timeText = el.textContent.trim();
+                    if (timeText.match(/^\d{1,2}:\d{2}(:\d{2})?$/)) {
+                        allTimes.push(timeText.substring(0, 5));
+                    }
+                });
 
-開発者ツールで選択された要素から上の階層を探す
-<div class="container_1f0sgyp-o_O-containerFullSize_5t8a34"> のような大きなコンテナを見つける
+                // 重複を削除し、時刻順にソート（数値として比較）
+                const uniqueSortedTimes = [...new Set(allTimes)].sort((a, b) => {
+                    // 時刻文字列を'HH:MM'から分に変換して比較
+                    // '9:15' -> 9*60 + 15 = 555
+                    // '18:25' -> 18*60 + 25 = 1105
+                    const [h1, m1] = a.split(':').map(Number);
+                    const [h2, m2] = b.split(':').map(Number);
+                    return (h1 * 60 + m1) - (h2 * 60 + m2);
+                });
+                debugLog(`  ${day}日 - 抽出されたユニークな時刻: ${uniqueSortedTimes.join(', ')}`);
 
+                // 勤務タイプ情報
+                const dispShukkinEl = tempDoc.querySelector('[data-control-name="Lb_DispShukkin"] .appmagic-label-text');
+                const dispShukkinText = dispShukkinEl ? dispShukkinEl.innerHTML : '';
+                const dispTaikinEl = tempDoc.querySelector('[data-control-name="Lb_DispTaikin"] .appmagic-label-text');
+                const dispTaikinText = dispTaikinEl ? dispTaikinEl.innerHTML : '';
+                debugLog(`  ${day}日 - Lb_DispShukkin: "${dispShukkinText.replace(/\n/g, '\\n')}"`);
+                debugLog(`  ${day}日 - Lb_DispTaikin: "${dispTaikinText.replace(/\n/g, '\\n')}"`);
 
-そのコンテナを右クリック → Copy → Copy outerHTML
+                const hasTeleworkOvertimeLabel = dispShukkinText.includes('テレ2h') || dispTaikinText.includes('テレ2h');
+                const hasNormalWorkLabel = dispShukkinText.includes('出勤') || dispShukkinText.includes('テレ1日');
 
-③ 一時保存してチェック
+                // 時刻の割り当てロジック
+                if (uniqueSortedTimes.length > 0) {
+                    if (hasNormalWorkLabel) {
+                        currentDayRecord.normal.startTime = uniqueSortedTimes[0];
+                        currentDayRecord.hasNormalData = true;
 
-検証ページコピペ用.txt を開く
-Ctrl+V で貼り付け
-ファイルサイズが5MB程度あることを確認
-念のため保存しておく
+                        if (uniqueSortedTimes.length >= 2) {
+                            currentDayRecord.normal.endTime = uniqueSortedTimes[1];
+                        }
+                        
+                        // 残業の時刻割り当て
+                        // 正解データ例: 8日目: 08:55-18:52 + 21:24-25:32 (通常勤務+テレワーク残業)
+                        // uniqueSortedTimes = [08:55, 18:52, 21:24, 25:32]
+                        if (uniqueSortedTimes.length >= 4 && hasTeleworkOvertimeLabel) {
+                            // 残業時間は15分刻み（切り捨て）に調整
+                            currentDayRecord.overtime.startTime = roundDownTo15Minutes(uniqueSortedTimes[2]);
+                            currentDayRecord.overtime.endTime = roundDownTo15Minutes(uniqueSortedTimes[3]);
+                            currentDayRecord.hasOvertimeData = true;
+                            
+                            debugLog(`  ${day}日 - 残業時間調整: ${uniqueSortedTimes[2]} → ${currentDayRecord.overtime.startTime}, ${uniqueSortedTimes[3]} → ${currentDayRecord.overtime.endTime}`);
+                        } else if (uniqueSortedTimes.length === 3 && hasTeleworkOvertimeLabel) {
+                            // 3つの時刻の場合（例: 始業、就業、残業開始のみ）
+                            // このケースの扱いは、今後のデータパターンによる
+                            currentDayRecord.overtime.startTime = roundDownTo15Minutes(uniqueSortedTimes[2]);
+                            currentDayRecord.hasOvertimeData = true;
+                            
+                            debugLog(`  ${day}日 - 残業開始時間調整: ${uniqueSortedTimes[2]} → ${currentDayRecord.overtime.startTime}`);
+                        }
+                        // ここで中断時間・再開時間に関するロジックを挟む余地があるが、
+                        // 現在のHTMLデータからはそのパターンが不明なため空のまま
+                        // もしデータがあれば、uniqueSortedTimesの適切なインデックスを割り当てる
+                        // 例: currentDayRecord.normal.breakStartTime = uniqueSortedTimes[X];
+                        // 例: currentDayRecord.normal.breakEndTime = uniqueSortedTimes[Y];
 
+                    } else if (hasTeleworkOvertimeLabel && uniqueSortedTimes.length >= 2) {
+                        // 通常勤務ラベルがなく、テレワーク残業ラベルがあり、時刻が2つ以上ある場合
+                        // これが単独の残業日の可能性 (例: 休日出勤でテレ2h)
+                        currentDayRecord.overtime.startTime = roundDownTo15Minutes(uniqueSortedTimes[0]);
+                        currentDayRecord.overtime.endTime = roundDownTo15Minutes(uniqueSortedTimes[1]);
+                        currentDayRecord.hasOvertimeData = true;
+                        
+                        debugLog(`  ${day}日 - 単独残業時間調整: ${uniqueSortedTimes[0]} → ${currentDayRecord.overtime.startTime}, ${uniqueSortedTimes[1]} → ${currentDayRecord.overtime.endTime}`);
+                    }
+                }
+            }
+            debugLog(`検出された日別エントリコンテナ数 (正規表現): ${containerCount}`);
 
-🔄 手順2: データを変換
-① 楽ちんマンで変換
+            const resultData = [];
+            monthRecords.forEach((record, day) => {
+                // 通常勤務データと残業勤務データをそれぞれ別のエントリとして追加
+                // ただし、同じ日のデータなので、通常と残業を分けることでExcelの奇数/偶数行にマッピングしやすくなる
+                if (record.hasNormalData || record.hasOvertimeData) { // 何らかのデータがあれば追加
+                     // 通常勤務
+                     resultData.push({
+                         day: day,
+                         isOvertime: false, // 通常勤務はisOvertime: false
+                         startTime: record.normal.startTime,
+                         endTime: record.normal.endTime,
+                         breakStartTime: record.normal.breakStartTime,
+                         breakEndTime: record.normal.breakEndTime
+                     });
+                     // 残業勤務 (もしあれば、別のエントリとして追加してgenerate_csvで奇数行に振り分ける)
+                     if (record.hasOvertimeData) {
+                         resultData.push({
+                             day: day,
+                             isOvertime: true, // 残業はisOvertime: true
+                             startTime: record.overtime.startTime,
+                             endTime: record.overtime.endTime,
+                             breakStartTime: '', // 残業には中断時間なし
+                             breakEndTime: ''    // 残業には中断時間なし
+                         });
+                     }
+                }
+            });
+            
+            // 複数エントリになった場合は、dayとisOvertimeでソートすることで、
+            // generate_csvで処理しやすくなる。
+            // dayでソートし、isOvertime:true (残業) が isOvertime:false (通常) の後に来るように調整
+            resultData.sort((a, b) => {
+                if (a.day !== b.day) {
+                    return a.day - b.day;
+                }
+                // 同じ日の場合、通常勤務(false)を先に、残業(true)を後に
+                return a.isOvertime === b.isOvertime ? 0 : (a.isOvertime ? 1 : -1);
+            });
 
-楽ちんマン.html をダブルクリックして開く
-上のテキストエリアに先ほどのHTMLを貼り付け
+            return resultData;
+        }
+        
+        // --- CSV生成関数 ---
+        function generate_csv(data) {
+            // Excelの構造: AX,AY,AZ,BA の4列、31日分×2行ずつ=62行
+            // AX: 始業時間, AY: 就業時間, AZ: 勤務中断開始時間, BA: 勤務再開時間
+            
+            // 31日分の配列を作成（1日目から31日目）
+            // 各日には、奇数行 (残業) と偶数行 (通常勤務) のためのデータを持つ
+            const outputGrid = new Array(31).fill(null).map(() => ({
+                overtimeRow: ['', '', '', ''], // AX, AY, AZ, BA
+                normalRow: ['', '', '', '']   // AX, AY, AZ, BA
+            }));
 
-貼り付けると自動的に変換が始まります
+            // parse_dataでisOvertimeフラグを付けているので、それを使って振り分ける
+            data.forEach(entry => {
+                const dayIndex = entry.day - 1; // 0-indexed
 
+                if (dayIndex >= 0 && dayIndex < 31) {
+                    if (entry.isOvertime) {
+                        outputGrid[dayIndex].overtimeRow[0] = entry.startTime; // AX: 始業時間
+                        outputGrid[dayIndex].overtimeRow[1] = entry.endTime;   // AY: 就業時間
+                        // AZ, BA は残業では使用しないので空のまま
+                    } else { // 通常勤務
+                        outputGrid[dayIndex].normalRow[0] = entry.startTime;      // AX: 始業時間
+                        outputGrid[dayIndex].normalRow[1] = entry.endTime;        // AY: 就業時間
+                        outputGrid[dayIndex].normalRow[2] = entry.breakStartTime; // AZ: 勤務中断開始時間
+                        outputGrid[dayIndex].normalRow[3] = entry.breakEndTime;   // BA: 勤務再開時間
+                    }
+                }
+            });
 
-デバッグ情報で確認
-
-「HTMLで見つかったすべてのaria-posinset値」に 1, 2, 3, ..., 31 が表示されているかチェック
-15までしかない場合は、PowerAppsで31日目まで表示できていません
-
-
-
-② 結果をコピー
-
-変換が完了したら 「結果をコピー」ボタンをクリック
-データがクリップボードにコピーされます
-
-
-📊 手順3: Excelに貼り付け
-① Excelファイルを開く
-
-対象のタイムカードExcelファイルを開きます
-
-② 正確な位置に貼り付け
-
-AX13セルをクリック（重要：必ずこのセルから！）
-Ctrl+V で貼り付け
-データが AX13〜BA74 の範囲に自動的に配置されます
-
-③ 結果を確認
-
-各日の勤務時間が正しく入力されているか確認
-残業がある日は2行使われているか確認
-
-
-⚠️ 注意事項
-🔍 よくあるトラブル
-
-「15日分しか取得できない」
-→ PowerAppsで31日目まで画面表示していない
-→ もう一度スクロールして全日表示してからHTMLをコピー
-「時刻がおかしい」
-→ HTMLのコピー範囲が間違っている
-→ 勤務時間をクリックして、もっと大きなコンテナを選択
-「Excelの位置がずれる」
-→ AX13以外のセルに貼り付けている
-→ 必ずAX13セルから貼り付けてください
-
-💡 成功のコツ
-
-PowerAppsの画面は必ず31日分すべて表示
-HTMLは勤怠表全体を含む大きなコンテナをコピー
-Excelは必ずAX13セルから貼り付け
-
-
-🎉 完了！
-これで毎月の勤怠入力が楽ちんになります！
-何か困ったことがあれば、デバッグ情報を確認して、手順を再確認してください。
+            let csv = '';
+            outputGrid.forEach(dayRecord => {
+                // 奇数行: 残業用 (Excelの指定通り)
+                csv += dayRecord.overtimeRow.join('\t') + '\n';
+                // 偶数行: 通常勤務（メイン）用 (Excelの指定通り)
+                csv += dayRecord.normalRow.join('\t') + '\n';
+            });
+            
+            return csv;
+        }
+        
+        function copy_result() {
+            const output = document.getElementById('output').textContent;
+            navigator.clipboard.writeText(output).then(() => {
+                alert('変換結果をクリップボードにコピーしました！');
+            }).catch(err => {
+                // フォールバック
+                const textarea = document.createElement('textarea');
+                textarea.value = output;
+                document.body.appendChild(textarea);
+                textarea.select();
+                try {
+                    document.execCommand('copy');
+                    alert('変換結果をクリップボードにコピーしました！');
+                } catch (e) {
+                    alert('コピーに失敗しました。手動でコピーしてください。');
+                } finally {
+                    document.body.removeChild(textarea);
+                }
+            });
+        }
+        
+        function clear_all() {
+            document.getElementById('input').value = '';
+            document.getElementById('output').textContent = 'PowerAppsの勤怠データを貼り付けると、Excel形式で変換されます';
+            document.getElementById('copyBtn').style.display = 'none';
+            document.getElementById('debug-output').textContent = '';
+            document.getElementById('debug-output').style.display = 'none';
+        }
+    </script>
+</body>
+</html>
