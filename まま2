@@ -642,6 +642,46 @@
         document.addEventListener('DOMContentLoaded', function() {
             showTextMode(); // デフォルトはテキストモード
         });
+
+        // エラー修正：関数の順序を調整
+        function convertData() {
+            const input = document.getElementById('inputData').value;
+            if (!input.trim()) {
+                alert('データを入力してください');
+                return;
+            }
+
+            setButtonLoading('textConvertBtn', true);
+            
+            setTimeout(() => {
+                try {
+                    console.log('テキストデータの変換を開始...');
+                    
+                    const parsedData = parseAttendanceData(input);
+                    console.log('パース結果:', parsedData);
+                    
+                    if (parsedData.length === 0) {
+                        alert('データを正しく解析できませんでした。\n\n形式を確認してください：\n例: 25 (日) テレ1日 20:49 テレ終了 21:53');
+                        return;
+                    }
+                    
+                    const csvOutput = generateCSV(parsedData);
+                    const tablePreview = generateTable(parsedData);
+                    
+                    document.getElementById('outputData').textContent = csvOutput;
+                    document.getElementById('tablePreview').innerHTML = tablePreview;
+                    document.getElementById('copyBtn').style.display = 'inline-block';
+                    
+                    console.log('変換完了:', parsedData.length + '件のデータを変換しました');
+                    
+                } catch (error) {
+                    console.error('テキスト変換エラー:', error);
+                    alert('データの変換に失敗しました: ' + error.message);
+                } finally {
+                    setButtonLoading('textConvertBtn', false);
+                }
+            }, 100);
+        }
     </script>
 </body>
 </html>
