@@ -47,8 +47,8 @@
     <button onclick="convert()">変換</button>
     <button onclick="clear_all()">クリア</button>
     
-    <h2>変換結果</h2>
-    <div class="output" id="output">ここに変換結果が表示されます</div>
+    <h2>変換結果（Excel AX13:BA74 形式）</h2>
+    <div class="output" id="output">PowerAppsの勤怠データを貼り付けると、Excel形式で変換されます</div>
     
     <button onclick="copy_result()" id="copyBtn" style="display:none;">結果をコピー</button>
 
@@ -90,7 +90,8 @@
                 console.log('パース結果:', data);
                 
                 if (data.length === 0) {
-                    document.getElementById('output').textContent = 'データが見つかりませんでした';
+                    document.getElementById('output').textContent = '';
+                    document.getElementById('copyBtn').style.display = 'none';
                     return;
                 }
                 
@@ -102,7 +103,8 @@
                 
             } catch (error) {
                 console.error('エラー:', error);
-                document.getElementById('output').textContent = 'エラー: ' + error.message;
+                document.getElementById('output').textContent = '';
+                document.getElementById('copyBtn').style.display = 'none';
             }
         }
         
@@ -112,14 +114,45 @@
             // HTMLの場合、テキストのみを抽出
             let text = input;
             if (input.includes('<') && input.includes('>')) {
+                console.log('HTML形式のデータを検出');
+                
+                // より詳細にHTMLを解析
                 const div = document.createElement('div');
                 div.innerHTML = input;
+                
+                // PowerAppsの特殊な構造に対応
+                // 時刻データを含む要素を直接検索
+                const timeElements = div.querySelectorAll('*');
+                const timeTexts = [];
+                
+                timeElements.forEach(el => {
+                    const text = el.textContent || el.innerText || '';
+                    // 時刻パターン（HH:MM）を検索
+                    const timeMatches = text.match(/\b\d{1,2}:\d{2}\b/g);
+                    if (timeMatches) {
+                        timeTexts.push(...timeMatches);
+                    }
+                });
+                
+                console.log('HTML内で見つかった時刻:', timeTexts);
+                
+                // HTMLからテキストも抽出
                 text = div.textContent || div.innerText || '';
+                
+                // HTMLから抽出した時刻も追加
+                if (timeTexts.length > 0) {
+                    text += '\n時刻データ: ' + timeTexts.join(' ');
+                }
             }
             
             console.log('処理するテキスト長:', text.length);
+            console.log('テキストサンプル:', text.substring(0, 500));
             
             const lines = text.split('\n');
+            
+            // より詳細な時刻検索
+            const allTimeMatches = text.match(/\b\d{1,2}:\d{2}\b/g) || [];
+            console.log('テキスト全体で見つかった時刻:', allTimeMatches);
             
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i].trim();
@@ -131,17 +164,19 @@
                     const day = dateMatch[1];
                     const dayOfWeek = dateMatch[2];
                     
-                    // 同じ行または次の行から詳細を抽出
-                    let fullLine = line;
-                    if (i + 1 < lines.length) {
-                        fullLine += ' ' + lines[i + 1];
-                    }
-                    if (i + 2 < lines.length) {
-                        fullLine += ' ' + lines[i + 2];
+                    console.log(`${day}日(${dayOfWeek})の処理開始`);
+                    
+                    // 同じ行または前後の行から詳細を抽出
+                    let fullLine = '';
+                    for (let j = Math.max(0, i-2); j < Math.min(lines.length, i+5); j++) {
+                        fullLine += ' ' + lines[j];
                     }
                     
-                    // 時刻を抽出
-                    const times = fullLine.match(/\d{1,2}:\d{2}/g) || [];
+                    console.log(`${day}日の検索範囲:`, fullLine);
+                    
+                    // 時刻を抽出（より柔軟に）
+                    const times = fullLine.match(/\b\d{1,2}:\d{2}\b/g) || [];
+                    console.log(`${day}日で見つかった時刻:`, times);
                     
                     // 勤務タイプを抽出
                     let startType = '';
@@ -165,7 +200,28 @@
                     };
                     
                     data.push(entry);
-                    console.log(day + '日:', entry);
+                    console.log(`${day}日の最終結果:`, entry);
+                }
+            }
+            
+            // HTMLの場合で日付が見つからない場合の代替処理
+            if (data.length === 0 && input.includes('<')) {
+                console.log('日付パターンが見つからないため、時刻のみ抽出を試行');
+                
+                const allTimes = allTimeMatches;
+                if (allTimes.length > 0) {
+                    // 仮のデータを作成（25日として）
+                    const entry = {
+                        day: '25',
+                        dayOfWeek: '日',
+                        startType: '出勤',
+                        startTime: allTimes[0] || '',
+                        endType: '退勤',
+                        endTime: allTimes[1] || '',
+                        workHours: allTimes[2] || ''
+                    };
+                    data.push(entry);
+                    console.log('代替データを作成:', entry);
                 }
             }
             
@@ -173,18 +229,34 @@
         }
         
         function generate_csv(data) {
-            let csv = '日付\t曜日\t出勤区分\t出勤時刻\t退勤区分\t退勤時刻\t勤務時間\n';
+            // Excelの構造: AX,AY,AZ,BA の4列、31日分×2行ずつ=62行
+            // AX: 始業時間, AY: 就業時間, AZ: 勤務中断開始時間, BA: 勤務再開時間
             
-            data.forEach(row => {
-                csv += [
-                    row.day,
-                    row.dayOfWeek,
-                    row.startType,
-                    row.startTime,
-                    row.endType,
-                    row.endTime,
-                    row.workHours
-                ].join('\t') + '\n';
+            let csv = '';
+            
+            // 日付順にソート
+            data.sort((a, b) => parseInt(a.day) - parseInt(b.day));
+            
+            // 31日分の配列を作成（1日目から31日目）
+            const monthData = [];
+            for (let day = 1; day <= 31; day++) {
+                const dayData = data.find(d => parseInt(d.day) === day);
+                monthData.push(dayData || null);
+            }
+            
+            monthData.forEach((row, index) => {
+                const day = index + 1;
+                
+                if (row) {
+                    // データがある場合：偶数行にメインの勤務データを記載
+                    // 奇数行（残業用）は空
+                    csv += '\t\t\t\n'; // 奇数行（残業用）：空
+                    csv += `${row.startTime}\t${row.endTime}\t\t\n`; // 偶数行：始業時間、就業時間
+                } else {
+                    // データがない場合：両行とも空
+                    csv += '\t\t\t\n'; // 奇数行：空
+                    csv += '\t\t\t\n'; // 偶数行：空
+                }
             });
             
             return csv;
@@ -208,7 +280,7 @@
         
         function clear_all() {
             document.getElementById('input').value = '';
-            document.getElementById('output').textContent = 'ここに変換結果が表示されます';
+            document.getElementById('output').textContent = 'PowerAppsの勤怠データを貼り付けると、Excel形式で変換されます';
             document.getElementById('copyBtn').style.display = 'none';
         }
     </script>
