@@ -129,14 +129,14 @@
                     3. HTMLソース全体をコピーして下に貼り付け
                 </p>
                 <textarea id="htmlInputData" placeholder="開発者ツールからコピーしたHTMLソースをここに貼り付けてください..."></textarea>
-                <button onclick="parseHtmlData()">HTMLから抽出</button>
+                <button onclick="parseHtmlData()" id="htmlConvertBtn">HTMLから抽出</button>
             </div>
             
             <div id="manualInputArea" style="display:none;">
                 <h3>手動入力フォーム</h3>
                 <div id="manualInputForm"></div>
                 <button onclick="addManualEntry()">日付を追加</button>
-                <button onclick="generateFromManual()">変換実行</button>
+                <button onclick="generateFromManual()" id="manualConvertBtn">変換実行</button>
             </div>
             
             <div id="textInputArea">
@@ -148,7 +148,7 @@
 25	(日)		テレ1日	20:49	テレ終了	21:53
 26	(月)		出勤	9:10	退勤	19:57	9:30
 テレ2h	22:04	テレ終了	24:09"></textarea>
-                <button onclick="convertData()">データを変換</button>
+                <button onclick="convertData()" id="textConvertBtn">データを変換</button>
             </div>
             
             <button onclick="clearInput()" style="margin-top: 10px;">すべてクリア</button>
@@ -211,6 +211,24 @@
             });
         }
 
+        function setButtonLoading(buttonId, isLoading) {
+            const button = document.getElementById(buttonId);
+            if (isLoading) {
+                button.disabled = true;
+                button.style.backgroundColor = '#95a5a6';
+                button.textContent = '変換中...';
+                button.style.cursor = 'not-allowed';
+            } else {
+                button.disabled = false;
+                button.style.backgroundColor = '#3498db';
+                button.style.cursor = 'pointer';
+                // 元のテキストに戻す
+                if (buttonId === 'htmlConvertBtn') button.textContent = 'HTMLから抽出';
+                if (buttonId === 'manualConvertBtn') button.textContent = '変換実行';
+                if (buttonId === 'textConvertBtn') button.textContent = 'データを変換';
+            }
+        }
+
         function parseHtmlData() {
             const htmlInput = document.getElementById('htmlInputData').value;
             if (!htmlInput.trim()) {
@@ -218,105 +236,142 @@
                 return;
             }
 
-            try {
-                // HTMLから勤怠データを抽出
-                const parsedData = extractDataFromHtml(htmlInput);
-                if (parsedData.length === 0) {
-                    alert('HTMLソースから勤怠データを見つけられませんでした');
-                    return;
+            setButtonLoading('htmlConvertBtn', true);
+            
+            // 少し遅延を入れて変換処理を実行（UIの更新を確実にするため）
+            setTimeout(() => {
+                try {
+                    console.log('HTML解析を開始...');
+                    
+                    // HTMLから勤怠データを抽出
+                    const parsedData = extractDataFromHtml(htmlInput);
+                    console.log('抽出されたデータ:', parsedData);
+                    
+                    if (parsedData.length === 0) {
+                        alert('HTMLソースから勤怠データを見つけられませんでした。\n\n以下を確認してください：\n- 勤怠表の部分が含まれているか\n- 日付や時刻のデータがあるか');
+                        return;
+                    }
+                    
+                    const csvOutput = generateCSV(parsedData);
+                    const tablePreview = generateTable(parsedData);
+                    
+                    document.getElementById('outputData').textContent = csvOutput;
+                    document.getElementById('tablePreview').innerHTML = tablePreview;
+                    document.getElementById('copyBtn').style.display = 'inline-block';
+                    
+                    console.log('変換完了:', parsedData.length + '件のデータを変換しました');
+                    
+                } catch (error) {
+                    console.error('HTML解析エラー:', error);
+                    alert('HTMLの解析に失敗しました: ' + error.message);
+                } finally {
+                    setButtonLoading('htmlConvertBtn', false);
                 }
-                
-                const csvOutput = generateCSV(parsedData);
-                const tablePreview = generateTable(parsedData);
-                
-                document.getElementById('outputData').textContent = csvOutput;
-                document.getElementById('tablePreview').innerHTML = tablePreview;
-                document.getElementById('copyBtn').style.display = 'inline-block';
-                
-            } catch (error) {
-                alert('HTMLの解析に失敗しました: ' + error.message);
-                console.error(error);
-            }
+            }, 100);
         }
 
         function extractDataFromHtml(html) {
             // HTMLソースから勤怠データを抽出する関数
+            console.log('HTML解析開始...');
             const data = [];
             
-            // PowerAppsのHTML構造から日付と時刻のパターンを探す
-            // まずはテキストコンテンツを抽出
-            const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = html;
-            const textContent = tempDiv.textContent || tempDiv.innerText || '';
-            
-            // 日付パターンを検索 (1-31)（曜日）
-            const datePattern = /(\d{1,2})\s*（([^）]+)）/g;
-            // 時刻パターンを検索 (HH:MM)
-            const timePattern = /(\d{1,2}:\d{2})/g;
-            
-            let dateMatch;
-            const lines = textContent.split('\n');
-            
-            for (let i = 0; i < lines.length; i++) {
-                const line = lines[i].trim();
-                if (!line) continue;
+            try {
+                // HTMLソースから勤怠データを抽出する関数
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = html;
+                const textContent = tempDiv.textContent || tempDiv.innerText || '';
                 
-                const dateMatch = line.match(/(\d{1,2})\s*（([^）]+)）/);
-                if (dateMatch) {
-                    const day = parseInt(dateMatch[1]);
-                    const dayOfWeek = dateMatch[2];
+                console.log('テキストコンテンツの長さ:', textContent.length);
+                
+                // より詳細なパターンマッチング
+                const lines = textContent.split('\n').map(line => line.trim()).filter(line => line);
+                console.log('処理する行数:', lines.length);
+                
+                // 時刻パターン (HH:MM, H:MM)
+                const timePattern = /(\d{1,2}:\d{2})/g;
+                // 日付パターン
+                const datePattern = /(\d{1,2})\s*[\(（]([^）\)]+)[\)）]/;
+                
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i];
                     
-                    const entry = {
-                        day: day,
-                        dayOfWeek: dayOfWeek,
-                        vacation: '',
-                        fieldWork: '',
-                        startType: '',
-                        startTime: '',
-                        endType: '',
-                        endTime: '',
-                        workHours: ''
-                    };
-                    
-                    // 同じ行や次の数行から詳細情報を抽出
-                    const contextLines = lines.slice(i, i + 5).join(' ');
-                    const times = contextLines.match(/\d{1,2}:\d{2}/g) || [];
-                    
-                    // テレワーク、出勤、退勤などのキーワードを検索
-                    if (contextLines.includes('テレ1日') || contextLines.includes('テレワーク')) {
-                        entry.startType = 'テレ1日';
-                    } else if (contextLines.includes('出勤')) {
-                        entry.startType = '出勤';
-                    }
-                    
-                    if (contextLines.includes('テレ終了')) {
-                        entry.endType = 'テレ終了';
-                    } else if (contextLines.includes('退勤')) {
-                        entry.endType = '退勤';
-                    }
-                    
-                    // 時刻を割り当て
-                    if (times.length >= 2) {
-                        entry.startTime = times[0];
-                        entry.endTime = times[1];
-                    } else if (times.length === 1) {
-                        if (entry.startType) {
-                            entry.startTime = times[0];
-                        } else {
-                            entry.endTime = times[0];
+                    // 日付を含む行を検索
+                    const dateMatch = line.match(datePattern);
+                    if (dateMatch) {
+                        const day = parseInt(dateMatch[1]);
+                        const dayOfWeek = dateMatch[2];
+                        
+                        console.log(`日付発見: ${day}日(${dayOfWeek})`);
+                        
+                        const entry = {
+                            day: day,
+                            dayOfWeek: dayOfWeek,
+                            vacation: '',
+                            fieldWork: '',
+                            startType: '',
+                            startTime: '',
+                            endType: '',
+                            endTime: '',
+                            workHours: ''
+                        };
+                        
+                        // 前後数行も含めて詳細情報を検索
+                        const contextStart = Math.max(0, i - 2);
+                        const contextEnd = Math.min(lines.length, i + 5);
+                        const contextLines = lines.slice(contextStart, contextEnd);
+                        const contextText = contextLines.join(' ');
+                        
+                        console.log(`${day}日のコンテキスト:`, contextText);
+                        
+                        // 時刻を抽出
+                        const times = contextText.match(/\d{1,2}:\d{2}/g) || [];
+                        console.log(`${day}日の時刻:`, times);
+                        
+                        // 勤務タイプを判定
+                        if (contextText.includes('テレ1日')) {
+                            entry.startType = 'テレ1日';
+                        } else if (contextText.includes('テレ2h')) {
+                            entry.startType = 'テレ2h';
+                        } else if (contextText.includes('出勤')) {
+                            entry.startType = '出勤';
                         }
+                        
+                        if (contextText.includes('テレ終了')) {
+                            entry.endType = 'テレ終了';
+                        } else if (contextText.includes('退勤')) {
+                            entry.endType = '退勤';
+                        }
+                        
+                        // 時刻を割り当て
+                        if (times.length >= 1) {
+                            entry.startTime = times[0];
+                        }
+                        if (times.length >= 2) {
+                            entry.endTime = times[1];
+                        }
+                        if (times.length >= 3) {
+                            entry.workHours = times[2];
+                        }
+                        
+                        // 休暇情報
+                        if (contextText.includes('年休')) {
+                            entry.vacation = '年休';
+                        } else if (contextText.includes('半休')) {
+                            entry.vacation = '半休';
+                        }
+                        
+                        data.push(entry);
+                        console.log(`${day}日のエントリ:`, entry);
                     }
-                    
-                    // 勤務時間を抽出（最後の時刻が勤務時間の可能性）
-                    if (times.length >= 3) {
-                        entry.workHours = times[2];
-                    }
-                    
-                    data.push(entry);
                 }
+                
+                console.log('抽出完了。総件数:', data.length);
+                return data;
+                
+            } catch (error) {
+                console.error('HTML解析中にエラー:', error);
+                throw error;
             }
-            
-            return data;
         }
 
         function initManualForm() {
@@ -381,27 +436,39 @@
         }
 
         function generateFromManual() {
-            try {
-                const filteredData = manualEntries.filter(entry => 
-                    entry.startTime || entry.endTime || entry.startType !== '出勤'
-                );
-                
-                if (filteredData.length === 0) {
-                    alert('入力されたデータがありません');
-                    return;
+            setButtonLoading('manualConvertBtn', true);
+            
+            setTimeout(() => {
+                try {
+                    console.log('手動入力データの変換を開始...');
+                    
+                    const filteredData = manualEntries.filter(entry => 
+                        entry.startTime || entry.endTime || entry.startType !== '出勤'
+                    );
+                    
+                    console.log('フィルタ後のデータ:', filteredData);
+                    
+                    if (filteredData.length === 0) {
+                        alert('入力されたデータがありません');
+                        return;
+                    }
+                    
+                    const csvOutput = generateCSV(filteredData);
+                    const tablePreview = generateTable(filteredData);
+                    
+                    document.getElementById('outputData').textContent = csvOutput;
+                    document.getElementById('tablePreview').innerHTML = tablePreview;
+                    document.getElementById('copyBtn').style.display = 'inline-block';
+                    
+                    console.log('変換完了:', filteredData.length + '件のデータを変換しました');
+                    
+                } catch (error) {
+                    console.error('手動入力変換エラー:', error);
+                    alert('データの変換に失敗しました: ' + error.message);
+                } finally {
+                    setButtonLoading('manualConvertBtn', false);
                 }
-                
-                const csvOutput = generateCSV(filteredData);
-                const tablePreview = generateTable(filteredData);
-                
-                document.getElementById('outputData').textContent = csvOutput;
-                document.getElementById('tablePreview').innerHTML = tablePreview;
-                document.getElementById('copyBtn').style.display = 'inline-block';
-                
-            } catch (error) {
-                alert('データの変換に失敗しました: ' + error.message);
-                console.error(error);
-            }
+            }, 100);
         }
             const input = document.getElementById('inputData').value;
             if (!input.trim()) {
