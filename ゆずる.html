@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>フロッグジャンプ</title>
+    <style>
+        canvas { border: 1px solid black; touch-action: none; }
+        #score { font-size: 20px; }
+        #countdown { font-size: 40px; text-align: center; position: absolute; width: 400px; top: 200px; }
+    </style>
+</head>
+<body>
+    <div id="score">スコア: 0</div>
+    <canvas id="gameCanvas" width="400" height="600"></canvas>
+    <div id="countdown"></div>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreDisplay = document.getElementById('score');
+        const countdownDisplay = document.getElementById('countdown');
+
+        // カエルの画像を読み込む
+        const frogImage = new Image();
+        frogImage.src = 'flog.jpg'; // ここは君の画像の名前だよ！
+
+        // ゲームオブジェクトとパラメータ
+        const frog = { x: 200, y: 300, vx: 0, vy: 0, size: 20 };
+        const leaves = [];
+        let score = 0, combo = 0, leafSteps = 0; // leafStepsは踏んだ回数だよ
+        let gameStarted = false;
+
+        // 開発モードのパラメータ（初期値）
+        let params = {
+            leafCount: 10,      // 葉っぱの数
+            jumpForce: 15,      // 最初のジャンプ力
+            leafJumpForce: 10,  // 葉っぱでのジャンプ力
+            gravity: 0.3,       // 重力
+            friction: 0.9       // 摩擦
+        };
+
+        // キー＆タッチ状態
+        let leftPressed = false, rightPressed = false;
+        let stickActive = false, stickX = 0;
+
+        // パラメータ入力
+        function setupParams() {
+            params.leafCount = parseInt(prompt("葉っぱの数 (初期値: 10)", params.leafCount)) || params.leafCount;
+            params.jumpForce = parseFloat(prompt("初期ジャンプ力 (初期値: 15)", params.jumpForce)) || params.jumpForce;
+            params.leafJumpForce = parseFloat(prompt("葉っぱジャンプ力 (初期値: 10)", params.leafJumpForce)) || params.leafJumpForce;
+            params.gravity = parseFloat(prompt("重力 (初期値: 0.3)", params.gravity)) || params.gravity;
+            params.friction = parseFloat(prompt("摩擦 (初期値: 0.9)", params.friction)) || params.friction;
+        }
+
+        // 葉っぱ生成
+        function spawnLeaf() {
+            if (leaves.length < params.leafCount) { // 葉っぱが上限未満なら追加
+                leaves.push({
+                    x: Math.random() * (canvas.width - 40),
+                    y: Math.random() * (canvas.height - 100),
+                    size: 40
+                });
+            }
+        }
+
+        // 初期化
+        function init() {
+            leaves.length = 0;
+            leafSteps = 0; // 踏んだ回数をリセット
+            for (let i = 0; i < params.leafCount; i++) spawnLeaf();
+            frog.x = 200;
+            frog.y = 300;
+            frog.vx = 0;
+            frog.vy = 0;
+            score = 0;
+            combo = 0;
+            scoreDisplay.textContent = `スコア: ${score} (コンボ: ${combo})`;
+        }
+
+        // カウントダウン
+        function startCountdown() {
+            gameStarted = false;
+            let count = 3;
+            countdownDisplay.textContent = count;
+            const countdown = setInterval(() => {
+                count--;
+                if (count > 0) {
+                    countdownDisplay.textContent = count;
+                } else if (count === 0) {
+                    countdownDisplay.textContent = "スタート！";
+                } else {
+                    countdownDisplay.textContent = "";
+                    frog.vy = -params.jumpForce; // ジャンプ開始
+                    gameStarted = true;
+                    clearInterval(countdown);
+                }
+            }, 1000);
+        }
+
+        // キーイベント（PC用）
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') leftPressed = true;
+            if (e.key === 'ArrowRight') rightPressed = true;
+        });
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowLeft') leftPressed = false;
+            if (e.key === 'ArrowRight') rightPressed = false;
+        });
+
+        // タッチイベント（スマホ用）
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            stickActive = true;
+            stickX = e.touches[0].clientX - canvas.offsetLeft;
+        });
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (stickActive) stickX = e.touches[0].clientX - canvas.offsetLeft;
+        });
+        canvas.addEventListener('touchend', () => stickActive = false);
+
+        // ゲームループ
+        function update() {
+            // 描画
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = 'lightblue';
+            ctx.fillRect(0, canvas.height - 50, canvas.width, 50);
+            ctx.fillStyle = 'green';
+            leaves.forEach(leaf => ctx.fillRect(leaf.x, leaf.y, leaf.size, leaf.size));
+
+            // コンボ可能タイミングでオーラを描く
+            if (frog.vy >= 0 && frog.vy < 0.5) {
+                ctx.beginPath();
+                ctx.arc(frog.x + frog.size / 2, frog.y + frog.size / 2, frog.size, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(255, 0, 0, 0.3)'; // 薄い赤いオーラ
+                ctx.fill();
+            }
+
+            ctx.drawImage(frogImage, frog.x, frog.y, frog.size, frog.size);
+            scoreDisplay.textContent = `スコア: ${score} (コンボ: ${combo})`;
+
+            if (!gameStarted) {
+                requestAnimationFrame(update);
+                return;
+            }
+
+            // 操作
+            if (leftPressed) frog.vx -= 0.5;
+            if (rightPressed) frog.vx += 0.5;
+            if (stickActive) {
+                const stickInput = (stickX - frog.x) / 50;
+                frog.vx += stickInput;
+            }
+
+            // 物理演算
+            frog.vx *= params.friction;
+            frog.x += frog.vx;
+            frog.vy += params.gravity;
+            frog.y += frog.vy;
+
+            // 画面端
+            if (frog.x < 0) frog.x = 0, frog.vx = 0;
+            if (frog.x > canvas.width - frog.size) frog.x = canvas.width - frog.size, frog.vx = 0;
+
+            // 池に落ちる
+            if (frog.y > canvas.height) {
+                alert(`ゲームオーバー！スコア: ${score}`);
+                init();
+                startCountdown();
+            }
+
+            // 葉っぱとの当たり判定
+            leaves.forEach((leaf, i) => {
+                let isCombo = false;
+                if (frog.vy >= 0 && frog.vy < 0.5) { // 最高地点直前のコンボ条件
+                    isCombo = true;
+                }
+
+                if (frog.x + frog.size > leaf.x && frog.x < leaf.x + leaf.size &&
+                    frog.y + frog.size > leaf.y && frog.y + frog.size < leaf.y + leaf.size + 10) {
+                    frog.vy = -params.leafJumpForce;
+                    leaves.splice(i, 1);
+                    leafSteps++;
+                    if (leafSteps % 50 === 0 && params.leafCount > 5) {
+                        params.leafCount--; // 50回ごとに葉っぱ減らす
+                        console.log(`葉っぱの数が減ったよ！今: ${params.leafCount}`);
+                    }
+                    spawnLeaf();
+
+                    if (isCombo) {
+                        combo++; // コンボ成功
+                        score += 50 * combo; // 高得点
+                    } else {
+                        score += 10; // 通常点
+                    }
+                }
+            });
+
+            requestAnimationFrame(update);
+        }
+
+        // ゲーム開始
+        setupParams();
+        init();
+        startCountdown();
+        requestAnimationFrame(update);
+    </script>
+</body>
+</html>
